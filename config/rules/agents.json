@@ -1,0 +1,46 @@
+{
+  "rules": [
+    {
+      "id": "cursor-cache",
+      "name": "Cursor 缓存",
+      "category": "safe",
+      "contentType": "agent",
+      "paths": ["%APPDATA%\\Cursor"],
+      "globDirs": ["Cache", "Code Cache", "GPUCache", "CachedData", "logs", "Crashpad"],
+      "maxDepth": 2,
+      "defaultChecked": true,
+      "reason": "Cursor 编辑器缓存与日志",
+      "impact": "不影响用户配置与扩展，首次启动可能稍慢",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "claude-desktop-cache",
+      "name": "Claude 桌面版缓存",
+      "category": "safe",
+      "contentType": "agent",
+      "paths": ["%APPDATA%\\Claude"],
+      "globDirs": ["Cache", "Code Cache", "GPUCache", "logs", "Crashpad"],
+      "maxDepth": 2,
+      "defaultChecked": true,
+      "reason": "Claude 客户端缓存与日志",
+      "impact": "不影响账号与对话记录",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "codex-cache",
+      "name": "Codex 缓存",
+      "category": "safe",
+      "contentType": "agent",
+      "paths": ["%LOCALAPPDATA%\\codex", "%APPDATA%\\Codex"],
+      "globDirs": ["Cache", "cache", "logs", "GPUCache"],
+      "maxDepth": 2,
+      "defaultChecked": true,
+      "reason": "Codex 客户端缓存与日志",
+      "impact": "不影响账号数据",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    }
+  ]
+}

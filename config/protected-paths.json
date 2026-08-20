@@ -1,0 +1,19 @@
+{
+  "paths": [
+    "%SystemDrive%\\",
+    "%SystemRoot%\\System32",
+    "%SystemRoot%\\SysWOW64",
+    "%SystemRoot%\\WinSxS",
+    "%SystemRoot%\\Installer",
+    "%ProgramFiles%",
+    "%ProgramFiles(x86)%"
+  ],
+  "labels": {
+    "%SystemRoot%\\WinSxS": "Windows 组件存储",
+    "%SystemRoot%\\System32": "Windows 系统目录",
+    "%SystemRoot%\\SysWOW64": "Windows 32 位兼容目录",
+    "%SystemRoot%\\Installer": "Windows 安装程序缓存",
+    "%ProgramFiles%": "程序安装目录",
+    "%ProgramFiles(x86)%": "32 位程序安装目录"
+  }
+}

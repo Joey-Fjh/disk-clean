@@ -1,0 +1,104 @@
+{
+  "rules": [
+    {
+      "id": "npm-cache",
+      "name": "npm 缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%LOCALAPPDATA%\\npm-cache", "%APPDATA%\\npm-cache"],
+      "defaultChecked": true,
+      "reason": "npm 下载的包缓存",
+      "impact": "下次安装依赖时会重新下载",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "pnpm-store",
+      "name": "pnpm 存储",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%LOCALAPPDATA%\\pnpm\\store", "%LOCALAPPDATA%\\pnpm\\cache"],
+      "defaultChecked": true,
+      "reason": "pnpm 全局内容寻址存储",
+      "impact": "下次安装依赖时会重新下载",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "yarn-cache",
+      "name": "Yarn 缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%LOCALAPPDATA%\\Yarn\\Cache", "%LOCALAPPDATA%\\Yarn\\Berry\\cache"],
+      "defaultChecked": true,
+      "reason": "Yarn 包管理器缓存",
+      "impact": "下次安装依赖时会重新下载",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "pip-cache",
+      "name": "pip 缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%LOCALAPPDATA%\\pip\\Cache"],
+      "defaultChecked": true,
+      "reason": "Python pip 下载缓存",
+      "impact": "下次安装包时会重新下载",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "gradle-caches",
+      "name": "Gradle 构建缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%USERPROFILE%\\.gradle\\caches"],
+      "defaultChecked": true,
+      "reason": "Gradle 下载与构建产生的缓存",
+      "impact": "下次构建可能重新下载依赖",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "maven-repository",
+      "name": "Maven 本地仓库",
+      "category": "recommended",
+      "contentType": "developer",
+      "paths": ["%USERPROFILE%\\.m2\\repository"],
+      "defaultChecked": false,
+      "reason": "Maven 本地下载的依赖仓库",
+      "impact": "所有 Maven 项目可能重新下载依赖，耗时较长",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "vscode-cache",
+      "name": "VS Code 缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%APPDATA%\\Code"],
+      "globDirs": ["Cache", "CachedData", "Code Cache", "GPUCache", "logs"],
+      "maxDepth": 2,
+      "defaultChecked": true,
+      "reason": "编辑器缓存与日志",
+      "impact": "不影响扩展和设置，首次启动可能稍慢",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "jetbrains-caches",
+      "name": "JetBrains IDE 缓存",
+      "category": "safe",
+      "contentType": "developer",
+      "paths": ["%LOCALAPPDATA%\\JetBrains"],
+      "globDirs": ["**/caches", "**/log", "**/logs"],
+      "maxDepth": 3,
+      "defaultChecked": true,
+      "reason": "IDE 索引与构建缓存",
+      "impact": "下次打开项目可能重新索引",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    }
+  ]
+}

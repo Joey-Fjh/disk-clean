@@ -1,0 +1,46 @@
+{
+  "rules": [
+    {
+      "id": "chrome-cache",
+      "name": "Chrome 缓存",
+      "category": "safe",
+      "contentType": "browser-cache",
+      "paths": ["%LOCALAPPDATA%\\Google\\Chrome\\User Data"],
+      "globDirs": ["**/Cache", "**/Code Cache", "**/GPUCache"],
+      "maxDepth": 4,
+      "defaultChecked": true,
+      "reason": "浏览器页面与资源缓存",
+      "impact": "首次打开网页可能稍慢",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "edge-cache",
+      "name": "Edge 缓存",
+      "category": "safe",
+      "contentType": "browser-cache",
+      "paths": ["%LOCALAPPDATA%\\Microsoft\\Edge\\User Data"],
+      "globDirs": ["**/Cache", "**/Code Cache", "**/GPUCache"],
+      "maxDepth": 4,
+      "defaultChecked": true,
+      "reason": "浏览器页面与资源缓存",
+      "impact": "首次打开网页可能稍慢",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "firefox-cache",
+      "name": "Firefox 缓存",
+      "category": "safe",
+      "contentType": "browser-cache",
+      "paths": ["%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles"],
+      "globDirs": ["**/cache2", "**/startupCache"],
+      "maxDepth": 3,
+      "defaultChecked": true,
+      "reason": "Firefox 配置目录下的缓存",
+      "impact": "首次打开网页可能稍慢",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    }
+  ]
+}
