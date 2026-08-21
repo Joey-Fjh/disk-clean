@@ -1,15 +1,15 @@
 import { randomUUID } from 'crypto'
-import type { Category, CleanupAction, CleanupPlan, CleanupRequestItem } from '../../shared/types'
+import type { Category, CleanupAction, CleanupPlan, ScanCandidate } from '../../shared/types'
 
-export function buildCleanupPlan(items: CleanupRequestItem[]): CleanupPlan {
-  const actions: CleanupAction[] = items
+export function buildCleanupPlan(_sessionId: string, candidates: ScanCandidate[]): CleanupPlan {
+  const actions: CleanupAction[] = candidates
     .filter((item) => item.deletable)
     .map((item) => ({
       candidateId: item.id,
       ruleId: item.ruleId,
       target: item.path,
       operation: 'trash',
-      estimatedBytes: item.size
+      estimatedLogicalBytes: item.size
     }))
 
   const riskSummary: Record<Category, number> = {
@@ -17,14 +17,14 @@ export function buildCleanupPlan(items: CleanupRequestItem[]): CleanupPlan {
     recommended: 0,
     dangerous: 0
   }
-  for (const item of items) {
+  for (const item of candidates) {
     if (item.deletable) riskSummary[item.category]++
   }
 
   return {
     id: randomUUID(),
     actions,
-    estimatedBytes: actions.reduce((sum, action) => sum + action.estimatedBytes, 0),
+    estimatedLogicalBytes: actions.reduce((sum, action) => sum + action.estimatedLogicalBytes, 0),
     riskSummary,
     createdAt: Date.now()
   }

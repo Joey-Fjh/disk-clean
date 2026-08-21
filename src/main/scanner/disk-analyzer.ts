@@ -1,16 +1,11 @@
-import { existsSync } from 'fs'
+import { lstat } from 'fs/promises'
 import type { ScanError, ScanItem, ScanProgress } from '../../shared/types'
-import {
-  formatDriveLabel,
-  getSystemDriveScanTargets,
-  getUsersRoot,
-  isSystemDrive,
-  listAvailableDrives
-} from '../../shared/system-paths'
-import { expandEnvVars, isProtectedPath } from '../../shared/path-utils'
+import { formatDriveLabel, isSystemDrive, listAvailableDrives } from '../../shared/system-paths'
+import { expandEnvVars, isProtectedPath, matchesDriveFilter } from '../../shared/path-utils'
 import { getProtectedLabels, getProtectedPaths } from '../rules'
-import { getPathSize } from './rule-scanner'
-import { displayNameForPath, enrichCandidate, listImmediateChildren } from './rule-matcher'
+import { ANALYZER_MEASURE_MAX_DEPTH, measurePathDetailed } from './measure-size'
+import { displayNameForPath, enrichCandidate, listDriveRootEntries } from './rule-matcher'
+import { isScanCancelled } from './scan-controller'
 
 type ProgressCallback = (progress: ScanProgress) => void
 
@@ -39,42 +34,54 @@ async function analyzePath(
   labels: Record<string, string>,
   displayName?: string
 ): Promise<ScanItem | null> {
-  if (!existsSync(path)) return null
+  if (isScanCancelled()) return null
 
-  const size = await getPathSize(path)
+  const info = await lstat(path).catch(() => null)
+  if (!info || info.isSymbolicLink()) return null
+
+  let size = 0
+  let sizePartial = false
+  const entryKind = info.isFile() ? 'file' : 'directory'
+
+  if (info.isFile()) {
+    size = info.size
+  } else {
+    const measured = await measurePathDetailed(path, ANALYZER_MEASURE_MAX_DEPTH)
+    size = measured.size
+    sizePartial = measured.incomplete
+  }
+
   if (size === 0) return null
 
   const protectedHit = isProtectedPath(path, protectedPaths)
   const name = displayName ?? (protectedHit ? protectedLabel(path, protectedPaths, labels) : displayNameForPath(path))
+  const reasonBase = protectedHit ? '系统管理目录' : '磁盘空间占用分析（逻辑大小估算）'
+  const reason = sizePartial ? `${reasonBase}，深度受限可能不完整` : reasonBase
 
   return enrichCandidate(path, size, {
     name,
-    contentType: protectedHit ? 'system-protected' : 'large-dir',
+    contentType: protectedHit ? 'system-protected' : info.isFile() ? 'large-file' : 'large-dir',
     category: 'dangerous',
     deletable: false,
-    reason: protectedHit ? '系统管理目录' : '磁盘空间占用分析',
-    impact: protectedHit ? '不可直接删除' : '仅展示占用，不判断是否为垃圾'
+    reason,
+    impact: protectedHit ? '不可直接删除' : '仅展示占用，不判断是否为垃圾',
+    entryKind,
+    sizePartial
   })
 }
 
-async function collectFullScanTargets(): Promise<string[]> {
-  const targets = new Set<string>(getSystemDriveScanTargets())
+async function collectTargetsForDrive(driveFilter: string): Promise<string[]> {
+  const driveRoots =
+    driveFilter === 'all'
+      ? listAvailableDrives()
+      : [driveFilter.endsWith(':') ? `${driveFilter}\\` : driveFilter]
 
-  for (const drive of listAvailableDrives()) {
-    if (isSystemDrive(drive)) continue
-
-    const children = await listImmediateChildren(drive)
-    if (children.length === 0) {
-      targets.add(drive)
-      continue
-    }
-
-    for (const child of children) {
-      targets.add(child)
-    }
+  const targets: string[] = []
+  for (const root of driveRoots) {
+    if (!matchesDriveFilter(root, driveFilter)) continue
+    targets.push(...(await listDriveRootEntries(root)))
   }
-
-  return [...targets]
+  return targets
 }
 
 function displayNameForTarget(path: string): string {
@@ -90,18 +97,26 @@ function displayNameForTarget(path: string): string {
   return displayNameForPath(path)
 }
 
-export async function runDiskAnalysis(onProgress?: ProgressCallback): Promise<{
+export async function runDiskAnalysis(
+  driveFilter = 'all',
+  onProgress?: ProgressCallback
+): Promise<{
   items: ScanItem[]
   errors: ScanError[]
+  cancelled?: boolean
 }> {
   const protectedPaths = getProtectedPaths()
   const labels = getProtectedLabels()
-  const targets = await collectFullScanTargets()
+  const targets = await collectTargetsForDrive(driveFilter)
   const errors: ScanError[] = []
   const items: ScanItem[] = []
 
   for (let i = 0; i < targets.length; i++) {
+    if (isScanCancelled()) break
+
     const path = expandEnvVars(targets[i])
+    if (!matchesDriveFilter(path, driveFilter)) continue
+
     const label = displayNameForTarget(path)
 
     onProgress?.({
@@ -139,35 +154,5 @@ export async function runDiskAnalysis(onProgress?: ProgressCallback): Promise<{
   }
 
   items.sort((a, b) => b.size - a.size)
-  return { items, errors }
-}
-
-/** 展开系统盘 Users 下一级目录 */
-export async function analyzeUserProfiles(onProgress?: ProgressCallback): Promise<ScanItem[]> {
-  const usersRoot = getUsersRoot()
-  if (!existsSync(usersRoot)) return []
-
-  const protectedPaths = getProtectedPaths()
-  const labels = getProtectedLabels()
-  const children = await listImmediateChildren(usersRoot)
-
-  const items: ScanItem[] = []
-  for (let i = 0; i < children.length; i++) {
-    const path = children[i]
-    onProgress?.({
-      mode: 'full',
-      label: displayNameForPath(path),
-      category: 'dangerous',
-      status: 'scanning',
-      current: i + 1,
-      total: children.length,
-      categoryCurrent: i + 1,
-      categoryTotal: children.length
-    })
-
-    const item = await analyzePath(path, protectedPaths, labels)
-    if (item) items.push(item)
-  }
-
-  return items.sort((a, b) => b.size - a.size)
+  return { items, errors, cancelled: isScanCancelled() }
 }

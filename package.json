@@ -10,7 +10,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "pack": "npm run build && electron-builder --win",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "build": {
     "appId": "com.diskclean.app",
@@ -44,7 +45,9 @@
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^3.0.5",
+    "jsdom": "^26.0.0"
   },
   "dependencies": {
     "fast-glob": "^3.3.2"

@@ -1,5 +1,5 @@
 /// <reference path="../preload/index.d.ts" />
-import type { Category, RuleWithMeta, ScanItem, ScanMode, ScanResult } from '../shared/types'
+import type { Category, RuleWithMeta, ScanError, ScanItem, ScanResult } from '../shared/types'
 import {
   CATEGORY_DESCRIPTIONS,
   CATEGORY_LABELS,
@@ -7,6 +7,8 @@ import {
   CONTENT_TYPE_LABELS,
   SCAN_MODE_LABELS
 } from '../shared/types'
+import { showConfirmDialog } from './confirm-dialog'
+import { createScanItemElement } from './safe-render'
 
 type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -61,8 +63,9 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 })
 
 // ── Scan / Clean ──
-const quickScanBtn = document.getElementById('quick-scan-btn') as HTMLButtonElement
-const fullScanBtn = document.getElementById('full-scan-btn') as HTMLButtonElement
+const driveSelect = document.getElementById('drive-select') as HTMLSelectElement
+const modeSelect = document.getElementById('mode-select') as HTMLSelectElement
+const scanBtn = document.getElementById('scan-btn') as HTMLButtonElement
 const cleanBtn = document.getElementById('clean-btn') as HTMLButtonElement
 const summary = document.getElementById('summary') as HTMLElement
 const progress = document.getElementById('progress') as HTMLElement
@@ -78,8 +81,14 @@ const totalSizeLabelEl = document.getElementById('total-size-label') as HTMLElem
 const statusText = document.getElementById('status-text') as HTMLElement
 
 let scanResult: ScanResult | null = null
-let currentScanMode: ScanMode = 'quick'
 let selectedIds = new Set<string>()
+let scanning = false
+let renderTimer: number | null = null
+
+function basename(path: string): string {
+  const parts = path.replace(/\//g, '\\').split('\\')
+  return parts[parts.length - 1] || path
+}
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -96,7 +105,6 @@ function categoryBadgeClass(category: Category): string {
 }
 
 function updateProgressUI(p: {
-  mode: ScanMode
   label: string
   ruleName?: string
   category: Category
@@ -105,31 +113,81 @@ function updateProgressUI(p: {
   categoryCurrent: number
   categoryTotal: number
 }): void {
-  const modeLabel = SCAN_MODE_LABELS[p.mode]
-  const unit = p.mode === 'quick' ? '条规则' : '个目录'
-  progressLabel.textContent = `${modeLabel} · 第 ${p.current}/${p.total} ${unit}`
+  progressLabel.textContent = `正在扫描 · 第 ${p.current}/${p.total} 条规则`
   progressRule.textContent = p.label || p.ruleName || '…'
-  progressHint.textContent =
-    p.mode === 'full'
-      ? '分析磁盘空间占用，不判断是否为垃圾'
-      : `${CATEGORY_LABELS[p.category]} · 本档 ${p.categoryCurrent}/${p.categoryTotal}`
+  progressHint.textContent = `${CATEGORY_LABELS[p.category]} · 本档 ${p.categoryCurrent}/${p.categoryTotal}`
 
   const percent = p.total > 0 ? Math.min((p.current / p.total) * 100, 95) : 0
   progressFill.style.width = `${percent}%`
 }
 
+function updateLiveSummary(items: ScanItem[]): void {
+  const deletableSize = items.filter((i) => i.deletable).reduce((s, i) => s + i.size, 0)
+  totalSizeEl.textContent = formatSize(deletableSize)
+  itemCountEl.textContent = String(items.length)
+}
+
+function scheduleRender(items: ScanItem[]): void {
+  if (renderTimer !== null) window.clearTimeout(renderTimer)
+  renderTimer = window.setTimeout(() => {
+    renderCategories(items)
+    renderTimer = null
+  }, 120)
+}
+
+function setScanning(active: boolean): void {
+  scanning = active
+  scanBtn.textContent = active ? '停止扫描' : '开始扫描'
+  scanBtn.classList.toggle('btn-primary', !active)
+  scanBtn.classList.toggle('btn-stop', active)
+  driveSelect.disabled = active
+  modeSelect.disabled = active
+  if (active) {
+    cleanBtn.disabled = true
+  } else {
+    updateSelectedSummary()
+  }
+}
+
+function finishScan(result: ScanResult): void {
+  scanResult = result
+  const { items, errors, cancelled, drive, mode } = result
+
+  selectedIds = new Set(items.filter((i) => getDefaultChecked(i)).map((i) => i.id))
+
+  progress.hidden = true
+  updateLiveSummary(items)
+  if (renderTimer !== null) {
+    window.clearTimeout(renderTimer)
+    renderTimer = null
+  }
+  renderCategories(items)
+  updateSelectedSummary()
+
+  const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
+  const modeLabel = SCAN_MODE_LABELS[mode]
+  if (cancelled) {
+    statusText.textContent = `${driveLabel} · ${modeLabel}已停止 · 保留 ${items.length} 项结果`
+  } else if (errors.length > 0) {
+    statusText.textContent = `${driveLabel} · ${modeLabel}完成，${errors.length} 个路径因权限等原因跳过`
+  } else {
+    statusText.textContent = `${driveLabel} · ${modeLabel}完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
+  }
+}
+
 function getDefaultChecked(item: ScanItem): boolean {
-  if (!item.deletable) return false
-  if (item.category === 'safe') return true
-  return false
+  return item.deletable && item.autoSelect
 }
 
 function updateSelectedSummary(): void {
-  if (!scanResult) return
+  if (!scanResult) {
+    cleanBtn.disabled = true
+    return
+  }
   const selected = scanResult.items.filter((i) => selectedIds.has(i.id))
   const size = selected.reduce((s, i) => s + i.size, 0)
   selectedSizeEl.textContent = formatSize(size)
-  cleanBtn.disabled = selected.length === 0
+  cleanBtn.disabled = scanning || selected.length === 0
 }
 
 function renderCategories(items: ScanItem[]): void {
@@ -191,49 +249,75 @@ function renderCategories(items: ScanItem[]): void {
   }
 
   function renderItemList(catItems: ScanItem[], selectAllCb: HTMLInputElement): HTMLElement {
-    const list = document.createElement('ul')
-    list.className = 'item-list scroll-area'
+    const container = document.createElement('div')
+    container.className = 'rule-groups'
 
+    const groups = new Map<string, ScanItem[]>()
     for (const item of catItems) {
-      const li = document.createElement('li')
-      li.className = 'item'
-
-      const checked = selectedIds.has(item.id)
-      const disabled = !item.deletable
-
-      li.innerHTML = `
-        <input type="checkbox" data-id="${item.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
-        <div class="item-info">
-          <div class="item-name">${item.ruleName}</div>
-          <div class="item-type">${CONTENT_TYPE_LABELS[item.contentType]}</div>
-          <button type="button" class="item-path" title="在资源管理器中打开">${item.path}</button>
-          ${item.reason ? `<div class="item-desc">${item.reason}</div>` : ''}
-          ${item.impact ? `<div class="item-impact">${item.impact}</div>` : ''}
-          ${item.description && item.description !== item.reason ? `<div class="item-note">${item.description}</div>` : ''}
-        </div>
-        <span class="item-size">${formatSize(item.size)}</span>
-      `
-
-      const checkbox = li.querySelector('input') as HTMLInputElement
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) selectedIds.add(item.id)
-        else selectedIds.delete(item.id)
-        updateSelectAllState(selectAllCb, catItems)
-        updateSelectedSummary()
-      })
-
-      const pathBtn = li.querySelector('.item-path') as HTMLButtonElement
-      pathBtn.addEventListener('click', async () => {
-        try {
-          await window.diskClean.openInExplorer(item.path)
-        } catch (err) {
-          statusText.textContent = `无法打开：${err instanceof Error ? err.message : String(err)}`
-        }
-      })
-
-      list.appendChild(li)
+      const list = groups.get(item.ruleName) ?? []
+      list.push(item)
+      groups.set(item.ruleName, list)
     }
-    return list
+
+    for (const [ruleName, ruleItems] of groups) {
+      const group = document.createElement('section')
+      group.className = 'rule-group'
+
+      const ruleSize = ruleItems.reduce((s, i) => s + i.size, 0)
+      const drives = [...new Set(ruleItems.map((i) => i.drive))].join('、')
+
+      const header = document.createElement('div')
+      header.className = 'rule-group-header'
+      const nameSpan = document.createElement('span')
+      nameSpan.className = 'rule-group-name'
+      nameSpan.textContent = ruleName
+      const metaSpan = document.createElement('span')
+      metaSpan.className = 'rule-group-meta'
+      metaSpan.textContent = `${ruleItems.length} 项 · ${formatSize(ruleSize)} · ${drives}`
+      header.append(nameSpan, metaSpan)
+      group.appendChild(header)
+
+      const list = document.createElement('ul')
+      list.className = 'item-list'
+
+      for (const item of ruleItems) {
+        const li = createScanItemElement({
+          fileName: basename(item.path),
+          path: item.path,
+          typeLabel: `${CONTENT_TYPE_LABELS[item.contentType]} · ${item.drive} · 逻辑大小估算`,
+          sizeLabel: formatSize(item.size),
+          reason: item.reason,
+          impact: item.impact
+        })
+
+        const checkbox = li.querySelector('input') as HTMLInputElement
+        checkbox.dataset.id = item.id
+        checkbox.checked = selectedIds.has(item.id)
+        checkbox.disabled = !item.deletable
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) selectedIds.add(item.id)
+          else selectedIds.delete(item.id)
+          updateSelectAllState(selectAllCb, catItems)
+          updateSelectedSummary()
+        })
+
+        const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
+        pathBtnEl.addEventListener('click', async () => {
+          try {
+            await window.diskClean.openInExplorer(item.path)
+          } catch (err) {
+            statusText.textContent = `无法打开：${err instanceof Error ? err.message : String(err)}`
+          }
+        })
+
+        list.appendChild(li)
+      }
+
+      group.appendChild(list)
+      container.appendChild(group)
+    }
+
+    return container
   }
 
   function switchCategory(category: Category): void {
@@ -297,6 +381,7 @@ function renderCategories(items: ScanItem[]): void {
         selectAllLabel.append(selectAllCb, document.createTextNode('全选'))
 
         const list = renderItemList(catItems, selectAllCb)
+        list.classList.add('scroll-area')
         updateSelectAllState(selectAllCb, catItems)
 
         selectAllCb.addEventListener('change', () => {
@@ -306,7 +391,9 @@ function renderCategories(items: ScanItem[]): void {
         header.appendChild(selectAllLabel)
         panel.appendChild(list)
       } else {
-        panel.appendChild(renderItemList(catItems, document.createElement('input')))
+        const list = renderItemList(catItems, document.createElement('input'))
+        list.classList.add('scroll-area')
+        panel.appendChild(list)
       }
     }
 
@@ -318,68 +405,59 @@ function renderCategories(items: ScanItem[]): void {
   categoriesEl.appendChild(wrapper)
 }
 
-async function startScan(mode: ScanMode = currentScanMode): Promise<void> {
-  currentScanMode = mode
-  quickScanBtn.disabled = true
-  fullScanBtn.disabled = true
-  cleanBtn.disabled = true
+async function startScan(): Promise<void> {
+  const drive = driveSelect.value || 'all'
+  const mode = (modeSelect.value || 'quick') as ScanResult['mode']
+  setScanning(true)
+  selectedIds = new Set()
+  scanResult = null
   progress.hidden = false
-  summary.hidden = true
-  categoriesEl.innerHTML = `<section class="empty-state"><p>${SCAN_MODE_LABELS[mode]}中…</p></section>`
+  summary.hidden = false
+  categoriesEl.innerHTML = ''
   progressFill.style.width = '0%'
   progressRule.textContent = '准备开始…'
-  progressLabel.textContent = `${SCAN_MODE_LABELS[mode]} · 初始化`
-  progressHint.textContent = mode === 'full' ? '正在分析本机各磁盘目录占用' : ''
-  statusText.textContent = `${SCAN_MODE_LABELS[mode]}中，请稍候`
+  progressLabel.textContent = '正在扫描 · 初始化'
+  progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · ${SCAN_MODE_LABELS[mode]}`
+  statusText.textContent = '扫描中，发现的项目将实时列出…'
 
-  const unsubscribe = window.diskClean.onScanProgress((p) => {
-    if (p.status === 'scanning') {
-      updateProgressUI(p)
-    }
+  let accumulatedItems: ScanItem[] = []
+  let accumulatedErrors: ScanError[] = []
+  updateLiveSummary(accumulatedItems)
+
+  const unsubscribeProgress = window.diskClean.onScanProgress((p) => {
+    if (p.status === 'scanning') updateProgressUI(p)
+  })
+
+  const unsubscribeItems = window.diskClean.onScanItems((batch) => {
+    accumulatedItems = [...accumulatedItems, ...batch]
+    updateLiveSummary(accumulatedItems)
+    scheduleRender(accumulatedItems)
   })
 
   try {
-    const result = await window.diskClean.startScan(mode)
-    scanResult = result
-    selectedIds = new Set(
-      result.items.filter((i) => getDefaultChecked(i)).map((i) => i.id)
-    )
-
-    progressFill.style.width = '100%'
-    progressRule.textContent = '扫描完成'
-    progressLabel.textContent = `${SCAN_MODE_LABELS[mode]}完成 · 共 ${result.items.length} 项`
-    progressHint.textContent = ''
-    progress.hidden = true
-    summary.hidden = false
-
-    const deletableSize = result.items
-      .filter((i) => i.deletable)
-      .reduce((s, i) => s + i.size, 0)
-
-    totalSizeLabelEl.textContent = mode === 'full' ? '分析总量' : '可清理总量'
-    totalSizeEl.textContent = formatSize(mode === 'full' ? result.totalSize : deletableSize)
-    itemCountEl.textContent = String(result.items.length)
-
-    renderCategories(result.items)
-    updateSelectedSummary()
-
-    const errCount = result.errors.length
-    statusText.textContent =
-      errCount > 0
-        ? `${SCAN_MODE_LABELS[mode]}完成，${errCount} 个路径因权限等原因跳过`
-        : `${SCAN_MODE_LABELS[mode]}完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
+    const result = await window.diskClean.startScan({ drive, mode })
+    finishScan(result)
   } catch (err) {
     statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
     progress.hidden = true
   } finally {
-    unsubscribe()
-    quickScanBtn.disabled = false
-    fullScanBtn.disabled = false
+    unsubscribeProgress()
+    unsubscribeItems()
+    setScanning(false)
   }
 }
 
+async function handleScanButtonClick(): Promise<void> {
+  if (scanning) {
+    statusText.textContent = '正在停止扫描…'
+    await window.diskClean.cancelScan()
+    return
+  }
+  await startScan()
+}
+
 async function cleanSelected(): Promise<void> {
-  if (!scanResult) return
+  if (!scanResult?.sessionId) return
 
   const selected = scanResult.items.filter((i) => selectedIds.has(i.id) && i.deletable)
   if (selected.length === 0) return
@@ -392,36 +470,69 @@ async function cleanSelected(): Promise<void> {
     .filter(Boolean)
     .join(' · ')
 
-  const confirmed = confirm(
-    `确认清理 ${selected.length} 项（预计释放 ${formatSize(totalSize)}）？\n\n${riskLines}\n\n将移入回收站，可从回收站恢复。`
-  )
+  const confirmed = await showConfirmDialog({
+    title: '确认清理',
+    message: `将 ${selected.length} 项移入回收站（逻辑大小估算 ${formatSize(totalSize)}）`,
+    details: [
+      riskLines,
+      '执行方式：移入 Windows 回收站',
+      '这些文件仍可能占用磁盘空间，清空回收站后才会真正释放',
+      '若路径自扫描后发生显著变化，将自动跳过而不强制执行'
+    ]
+  })
   if (!confirmed) return
 
   cleanBtn.disabled = true
   statusText.textContent = '正在生成清理计划并校验…'
 
-  const result = await window.diskClean.executeCleanup({
-    items: selected.map((item) => ({
-      id: item.id,
-      ruleId: item.ruleId,
-      path: item.path,
-      size: item.size,
-      category: item.category,
-      deletable: item.deletable
-    }))
-  })
+  try {
+    const result = await window.diskClean.executeCleanup({
+      sessionId: scanResult.sessionId,
+      candidateIds: selected.map((item) => item.id)
+    })
 
-  const parts = [`释放约 ${formatSize(result.freedBytes)}`, `成功 ${result.deleted}`]
-  if (result.skipped > 0) parts.push(`跳过 ${result.skipped}`)
-  if (result.failed > 0) parts.push(`失败 ${result.failed}`)
-  statusText.textContent = `清理完成：${parts.join('，')}`
+    const parts = [
+      `已移入回收站 ${formatSize(result.movedToTrashBytes)}（逻辑大小估算）`,
+      `成功 ${result.moved}`,
+      '清空回收站后才会真正释放磁盘空间'
+    ]
+    if (result.skipped > 0) parts.push(`校验跳过 ${result.skipped}`)
+    if (result.failed > 0) parts.push(`失败 ${result.failed}`)
+    statusText.textContent = `清理完成：${parts.join('；')}`
 
-  await startScan(currentScanMode)
+    await startScan()
+  } catch (err) {
+    statusText.textContent = `清理失败：${err instanceof Error ? err.message : String(err)}`
+    updateSelectedSummary()
+  }
 }
 
-quickScanBtn.addEventListener('click', () => startScan('quick'))
-fullScanBtn.addEventListener('click', () => startScan('full'))
+scanBtn.addEventListener('click', () => {
+  void handleScanButtonClick()
+})
 cleanBtn.addEventListener('click', cleanSelected)
+
+async function loadDriveOptions(): Promise<void> {
+  const fallback = ['C:', 'D:', 'E:']
+  try {
+    const drives = await window.diskClean.listDrives()
+    const letters = drives.length > 0 ? drives : fallback
+    driveSelect.innerHTML = '<option value="all">全部磁盘</option>'
+    for (const drive of letters) {
+      const option = document.createElement('option')
+      option.value = drive
+      option.textContent = `${drive} 盘`
+      driveSelect.appendChild(option)
+    }
+  } catch {
+    driveSelect.innerHTML = `
+      <option value="all">全部磁盘</option>
+      <option value="C:">C: 盘</option>
+    `
+  }
+}
+
+void loadDriveOptions()
 
 // ── Rules settings ──
 const rulesList = document.getElementById('rules-list') as HTMLElement
@@ -465,21 +576,34 @@ function renderRulesList(): void {
       const row = document.createElement('div')
       row.className = `rule-item${rule.enabled ? '' : ' disabled'}`
 
-      row.innerHTML = `
-        <div class="rule-item-main">
-          <div class="rule-item-name">${rule.name}</div>
-          <div class="rule-item-meta">${rule.contentType ? CONTENT_TYPE_LABELS[rule.contentType] + ' · ' : ''}${rule.id}${rule.source === 'custom' ? ' · 自定义' : ''}</div>
-        </div>
-        <div class="rule-item-actions">
-          <label class="rule-toggle">
-            <input type="checkbox" ${rule.enabled ? 'checked' : ''} />
-            <span></span>
-          </label>
-          ${rule.source === 'custom' ? '<button class="rule-delete">删除</button>' : ''}
-        </div>
-      `
+      const main = document.createElement('div')
+      main.className = 'rule-item-main'
+      const nameEl = document.createElement('div')
+      nameEl.className = 'rule-item-name'
+      nameEl.textContent = rule.name
+      const metaEl = document.createElement('div')
+      metaEl.className = 'rule-item-meta'
+      metaEl.textContent = `${rule.contentType ? CONTENT_TYPE_LABELS[rule.contentType] + ' · ' : ''}${rule.id}${rule.source === 'custom' ? ' · 自定义' : ''}`
+      main.append(nameEl, metaEl)
 
-      const toggle = row.querySelector('input') as HTMLInputElement
+      const actions = document.createElement('div')
+      actions.className = 'rule-item-actions'
+      const toggleLabel = document.createElement('label')
+      toggleLabel.className = 'rule-toggle'
+      const toggle = document.createElement('input')
+      toggle.type = 'checkbox'
+      toggle.checked = rule.enabled
+      toggleLabel.append(toggle, document.createElement('span'))
+
+      actions.appendChild(toggleLabel)
+      if (rule.source === 'custom') {
+        const deleteBtn = document.createElement('button')
+        deleteBtn.className = 'rule-delete'
+        deleteBtn.textContent = '删除'
+        actions.appendChild(deleteBtn)
+      }
+
+      row.append(main, actions)
       toggle.addEventListener('change', async () => {
         allRules = await window.diskClean.setRuleEnabled(rule.id, toggle.checked)
         renderRulesList()

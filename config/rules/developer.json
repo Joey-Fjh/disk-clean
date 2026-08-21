@@ -6,23 +6,24 @@
       "category": "safe",
       "contentType": "developer",
       "paths": ["%LOCALAPPDATA%\\npm-cache", "%APPDATA%\\npm-cache"],
-      "defaultChecked": true,
+      "defaultChecked": false,
       "reason": "npm 下载的包缓存",
-      "impact": "下次安装依赖时会重新下载",
+      "impact": "清空仅用于回收空间，下次安装依赖时会重新下载；不是日常修复手段",
       "rebuildable": true,
       "cleanupStrategy": "trash"
     },
     {
       "id": "pnpm-store",
       "name": "pnpm 存储",
-      "category": "safe",
+      "category": "recommended",
       "contentType": "developer",
       "paths": ["%LOCALAPPDATA%\\pnpm\\store", "%LOCALAPPDATA%\\pnpm\\cache"],
-      "defaultChecked": true,
+      "defaultChecked": false,
+      "deletable": false,
+      "nativeManaged": true,
       "reason": "pnpm 全局内容寻址存储",
-      "impact": "下次安装依赖时会重新下载",
-      "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "impact": "请使用 pnpm store prune 删除未被引用的包；直接删除 store 可能导致项目异常",
+      "rebuildable": true
     },
     {
       "id": "yarn-cache",

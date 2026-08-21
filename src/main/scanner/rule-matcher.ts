@@ -1,8 +1,8 @@
 import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { readdir } from 'fs/promises'
-import type { Category, ContentType, RuleConfig, ScanItem } from '../../shared/types'
-import { expandEnvVars, isPathUnderRoot } from '../../shared/path-utils'
+import type { Category, ContentType, EntryKind, RuleConfig, ScanItem } from '../../shared/types'
+import { getDriveLetter, expandEnvVars, isPathUnderRoot } from '../../shared/path-utils'
 import { getActiveRules } from '../rules'
 
 export interface MatchedRule {
@@ -35,9 +35,12 @@ export function enrichCandidate(
     deletable: boolean
     reason?: string
     impact?: string
+    entryKind?: EntryKind
+    sizePartial?: boolean
   }
 ): ScanItem {
   const matched = matchPathToRule(path)
+  const entryKind = fallback.entryKind ?? 'directory'
 
   if (matched) {
     const { rule } = matched
@@ -47,14 +50,21 @@ export function enrichCandidate(
       ruleName: rule.name,
       category: rule.category,
       contentType: rule.contentType ?? fallback.contentType,
+      drive: getDriveLetter(path),
       path,
       size,
-      deletable: fallback.deletable && rule.deletable !== false && rule.category !== 'dangerous',
+      sizeIsEstimate: true,
+      sizePartial: fallback.sizePartial,
+      snapshotComplete: fallback.sizePartial !== true,
+      entryKind,
+      deletable: fallback.deletable && rule.deletable !== false && rule.category !== 'dangerous' && !rule.nativeManaged,
+      autoSelect: false,
       source: 'analyzer',
       description: rule.description,
       reason: rule.reason ?? rule.description ?? fallback.reason,
       impact: rule.impact ?? fallback.impact,
-      rebuildable: rule.rebuildable
+      rebuildable: rule.rebuildable,
+      recoveryMode: rule.nativeManaged ? 'native-managed' : 'none'
     }
   }
 
@@ -64,12 +74,32 @@ export function enrichCandidate(
     ruleName: fallback.name,
     category: fallback.category,
     contentType: fallback.contentType,
+    drive: getDriveLetter(path),
     path,
     size,
+    sizeIsEstimate: true,
+    sizePartial: fallback.sizePartial,
+    snapshotComplete: fallback.sizePartial !== true,
+    entryKind,
     deletable: fallback.deletable,
+    autoSelect: false,
     source: 'analyzer',
     reason: fallback.reason,
-    impact: fallback.impact
+    impact: fallback.impact,
+    recoveryMode: 'none'
+  }
+}
+
+export async function listDriveRootEntries(driveRoot: string): Promise<string[]> {
+  if (!existsSync(driveRoot)) return []
+
+  try {
+    const entries = await readdir(driveRoot, { withFileTypes: true })
+    return entries
+      .filter((entry) => !entry.isSymbolicLink())
+      .map((entry) => join(driveRoot, entry.name))
+  } catch {
+    return []
   }
 }
 

@@ -40,18 +40,24 @@
         <div class="panel-header">
           <div>
             <h2>磁盘清理</h2>
-            <p class="panel-desc">扫描尽量全面，删除必须保守</p>
+            <p class="panel-desc">选择磁盘与模式：安全清理按规则发现可删项；空间分析只读展示占用</p>
           </div>
           <div class="header-actions">
-            <button id="quick-scan-btn" class="btn btn-primary">快速扫描</button>
-            <button id="full-scan-btn" class="btn btn-secondary">空间分析</button>
+            <select id="drive-select" class="drive-select" title="选择要扫描的磁盘">
+              <option value="all">全部磁盘</option>
+            </select>
+            <select id="mode-select" class="drive-select" title="扫描模式">
+              <option value="quick">安全清理</option>
+              <option value="full">空间分析</option>
+            </select>
+            <button id="scan-btn" class="btn btn-primary">开始扫描</button>
             <button id="clean-btn" class="btn btn-danger" disabled>清理选中项</button>
           </div>
         </div>
 
         <section class="summary" id="summary" hidden>
           <div class="summary-card">
-            <span class="label" id="total-size-label">可清理总量</span>
+            <span class="label" id="total-size-label">可清理逻辑大小估算</span>
             <span class="value" id="total-size">0 B</span>
           </div>
           <div class="summary-card">
@@ -80,13 +86,25 @@
               </svg>
             </div>
             <h3>准备就绪</h3>
-            <p>点击「开始扫描」，检查可清理的缓存和临时文件</p>
+            <p>选择磁盘后点击「开始扫描」，按规则列出可清理的具体文件</p>
           </section>
         </main>
 
         <footer class="footer">
-          <p id="status-text">点击「开始扫描」检查可清理内容</p>
+          <p id="status-text" aria-live="polite">点击「开始扫描」检查可清理内容</p>
         </footer>
+      </div>
+
+      <div id="confirm-overlay" class="confirm-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="confirm-dialog">
+          <h3 id="confirm-title"></h3>
+          <p id="confirm-message"></p>
+          <ul id="confirm-details" class="confirm-details"></ul>
+          <div class="confirm-actions">
+            <button type="button" id="confirm-cancel" class="btn btn-secondary">取消</button>
+            <button type="button" id="confirm-ok" class="btn btn-danger">确认清理</button>
+          </div>
+        </div>
       </div>
 
       <!-- 设置 -->

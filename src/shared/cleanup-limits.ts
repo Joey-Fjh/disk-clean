@@ -1,0 +1,2 @@
+export const MAX_CLEANUP_CANDIDATE_IDS = 2000
+export const MAX_CANDIDATE_ID_LENGTH = 2048

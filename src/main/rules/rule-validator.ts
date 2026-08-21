@@ -1,4 +1,12 @@
 import type { RuleConfig } from '../../shared/types'
+import { expandEnvVars } from '../../shared/path-utils'
+import {
+  isAbsoluteWindowsPath,
+  isObviousPathEscape,
+  isOverlyBroadPath,
+  isRelativeRuleSegment,
+  resolveContainedUnderBase
+} from '../../shared/rule-match'
 
 const ALLOWED_FIELDS = new Set([
   'id',
@@ -17,7 +25,8 @@ const ALLOWED_FIELDS = new Set([
   'impact',
   'rebuildable',
   'cleanupStrategy',
-  'deletable'
+  'deletable',
+  'nativeManaged'
 ])
 
 const FORBIDDEN_FIELDS = new Set(['command', 'exec', 'script', 'shell', 'cmd', 'powershell', 'run'])
@@ -42,7 +51,14 @@ const VALID_CONTENT_TYPES = new Set([
 ])
 const VALID_STRATEGIES = new Set(['trash', 'delete-contents', 'delete-files'])
 
-export function validateRuleInput(rule: unknown): RuleConfig | null {
+const MAX_DEPTH_LIMIT = 12
+const MAX_AGE_LIMIT = 3650
+
+export interface RuleValidationOptions {
+  builtinIds?: string[]
+}
+
+export function validateRuleInput(rule: unknown, options: RuleValidationOptions = {}): RuleConfig | null {
   if (!rule || typeof rule !== 'object') return null
 
   const input = rule as Record<string, unknown>
@@ -57,9 +73,50 @@ export function validateRuleInput(rule: unknown): RuleConfig | null {
   const paths = input.paths
 
   if (typeof id !== 'string' || !id.trim()) return null
+  if (options.builtinIds?.includes(id.trim())) return null
   if (typeof name !== 'string' || !name.trim()) return null
   if (typeof category !== 'string' || !VALID_CATEGORIES.has(category)) return null
   if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => typeof p === 'string')) return null
+
+  const expandedPaths: string[] = []
+  for (const rawPath of paths) {
+    if (isObviousPathEscape(rawPath)) return null
+    const expanded = expandEnvVars(rawPath.trim())
+    if (expanded.includes('%')) return null
+    if (/^[A-Za-z]:\\?$/i.test(expanded.replace(/\\$/, ''))) return null
+    if (!isAbsoluteWindowsPath(expanded)) return null
+    expandedPaths.push(expanded)
+  }
+
+  const patterns = asStringArray(input.patterns)
+  const subdirs = asStringArray(input.subdirs)
+  const globDirs = asStringArray(input.globDirs)
+  const hasPreciseScope = Boolean(patterns?.length || subdirs?.length || globDirs?.length)
+
+  for (const expanded of expandedPaths) {
+    if (!hasPreciseScope && isOverlyBroadPath(expanded)) return null
+  }
+
+  for (const list of [patterns, subdirs, globDirs]) {
+    if (!list) continue
+    for (const entry of list) {
+      if (!isRelativeRuleSegment(entry)) return null
+    }
+  }
+
+  if (subdirs?.length) {
+    for (const rawPath of paths) {
+      const basePath = expandEnvVars(rawPath.trim())
+      for (const sub of subdirs) {
+        if (!resolveContainedUnderBase(basePath, sub)) return null
+      }
+    }
+  }
+
+  const maxDepth = asOptionalNumber(input.maxDepth)
+  const maxAgeDays = asOptionalNumber(input.maxAgeDays)
+  if (maxDepth !== undefined && (maxDepth < 0 || maxDepth > MAX_DEPTH_LIMIT)) return null
+  if (maxAgeDays !== undefined && (maxAgeDays < 0 || maxAgeDays > MAX_AGE_LIMIT)) return null
 
   if (
     input.contentType !== undefined &&
@@ -74,24 +131,27 @@ export function validateRuleInput(rule: unknown): RuleConfig | null {
     return null
   }
 
+  if (category === 'safe' && !hasPreciseScope) return null
+
   return {
     id: id.trim(),
     name: name.trim(),
     category: category as RuleConfig['category'],
     paths: paths.map((p) => p.trim()).filter(Boolean),
     contentType: input.contentType as RuleConfig['contentType'],
-    patterns: asStringArray(input.patterns),
-    subdirs: asStringArray(input.subdirs),
-    globDirs: asStringArray(input.globDirs),
-    maxDepth: asOptionalNumber(input.maxDepth),
-    maxAgeDays: asOptionalNumber(input.maxAgeDays),
+    patterns,
+    subdirs,
+    globDirs,
+    maxDepth,
+    maxAgeDays,
     defaultChecked: input.defaultChecked === true,
     description: asOptionalString(input.description),
     reason: asOptionalString(input.reason),
     impact: asOptionalString(input.impact),
     rebuildable: input.rebuildable === true ? true : input.rebuildable === false ? false : undefined,
     cleanupStrategy: input.cleanupStrategy as RuleConfig['cleanupStrategy'],
-    deletable: input.deletable === false ? false : undefined
+    deletable: input.deletable === false ? false : undefined,
+    nativeManaged: input.nativeManaged === true ? true : undefined
   }
 }
 

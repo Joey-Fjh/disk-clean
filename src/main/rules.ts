@@ -50,6 +50,10 @@ export function getActiveRules(): RuleConfig[] {
     .map(({ enabled: _enabled, source: _source, ...rule }) => rule)
 }
 
+export function getActiveRulesWithMeta(): RuleWithMeta[] {
+  return getAllRulesWithMeta().filter((rule) => rule.enabled)
+}
+
 export function setRuleEnabled(ruleId: string, enabled: boolean): void {
   const state = loadUserState()
   if (enabled) {
@@ -71,10 +75,11 @@ export function removeCustomRule(ruleId: string): boolean {
 
 export function importCustomRules(rules: unknown[]): number {
   const state = loadUserState()
+  const builtinIds = loadRulesBundle().rules.map((r) => r.id)
   let imported = 0
 
   for (const raw of rules) {
-    const rule = validateRuleInput(raw)
+    const rule = validateRuleInput(raw, { builtinIds })
     if (!rule) continue
 
     const index = state.customRules.findIndex((item) => item.id === rule.id)
@@ -82,6 +87,9 @@ export function importCustomRules(rules: unknown[]): number {
       state.customRules[index] = rule
     } else {
       state.customRules.push(rule)
+    }
+    if (!state.disabledRuleIds.includes(rule.id)) {
+      state.disabledRuleIds.push(rule.id)
     }
     imported++
   }

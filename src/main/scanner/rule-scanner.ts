@@ -1,155 +1,206 @@
 import { join } from 'path'
-import { readdir, stat, lstat } from 'fs/promises'
-import fg from 'fast-glob'
-import type { Category, ContentType, RuleConfig, ScanItem, ScanError, ScanProgress } from '../../shared/types'
-import { expandEnvVars, isProtectedPath } from '../../shared/path-utils'
-import { getActiveRules, getProtectedPaths } from '../rules'
+import { readdir, lstat } from 'fs/promises'
+import type { Category, ContentType, RuleWithMeta, ScanItem, ScanError, ScanProgress } from '../../shared/types'
+import { shouldAutoSelect } from '../../shared/candidate-policy'
+import { expandEnvVars, getDriveLetter, isProtectedPath, matchesDriveFilter } from '../../shared/path-utils'
+import { collectRuleTargets } from '../../shared/rule-match'
+import { getActiveRulesWithMeta, getProtectedPaths } from '../rules'
+import { isScanCancelled, yieldToEventLoop } from './scan-controller'
+import { measurePathSizeDetailed } from './measure-size'
 
 type ProgressCallback = (progress: ScanProgress) => void
+type ItemsCallback = (items: ScanItem[]) => void
 
-export async function getPathSize(targetPath: string, depth = 0): Promise<number> {
-  if (depth > 32) return 0
-
-  try {
-    const info = await lstat(targetPath)
-    if (info.isSymbolicLink()) return 0
-    if (info.isFile()) return info.size
-    if (!info.isDirectory()) return 0
-
-    let total = 0
-    const entries = await readdir(targetPath, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) continue
-
-      const child = join(targetPath, entry.name)
-      try {
-        if (entry.isDirectory()) {
-          total += await getPathSize(child, depth + 1)
-        } else if (entry.isFile()) {
-          const fileStat = await stat(child)
-          total += fileStat.size
-        }
-      } catch {
-        // skip inaccessible children
-      }
-    }
-    return total
-  } catch {
-    return 0
-  }
-}
+const MAX_CHILDREN_PER_DIR = 300
 
 function isOlderThan(maxAgeDays: number, mtimeMs: number): boolean {
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
   return mtimeMs < cutoff
 }
 
-async function collectTargets(rule: RuleConfig): Promise<string[]> {
-  const targets: string[] = []
-
-  for (const rawPath of rule.paths) {
-    const basePath = expandEnvVars(rawPath)
-
-    if (rule.globDirs?.length) {
-      for (const globDir of rule.globDirs) {
-        const pattern = join(basePath, globDir).replace(/\\/g, '/')
-        try {
-          const matches = await fg(pattern, {
-            onlyDirectories: true,
-            absolute: true,
-            suppressErrors: true,
-            dot: true,
-            deep: rule.maxDepth ?? 6
-          })
-          targets.push(...matches)
-        } catch {
-          // path may not exist
-        }
-      }
-      continue
-    }
-
-    if (rule.subdirs?.length) {
-      for (const sub of rule.subdirs) {
-        targets.push(join(basePath, sub))
-      }
-      continue
-    }
-
-    if (rule.patterns?.length) {
-      const pattern = join(
-        basePath,
-        rule.patterns.length === 1 ? rule.patterns[0] : `**/{${rule.patterns.join(',')}}`
-      )
-      try {
-        const matches = await fg(pattern.replace(/\\/g, '/'), {
-          onlyFiles: true,
-          absolute: true,
-          suppressErrors: true,
-          dot: true
-        })
-        targets.push(...matches)
-      } catch {
-        // path may not exist
-      }
-      continue
-    }
-
-    targets.push(basePath)
-  }
-
-  return [...new Set(targets)]
-}
-
-function resolveContentType(rule: RuleConfig): ContentType {
+function resolveContentType(rule: RuleWithMeta): ContentType {
   return rule.contentType ?? 'app-cache'
 }
 
-function resolveDeletable(rule: RuleConfig, targetPath: string, protectedPaths: string[]): boolean {
-  if (rule.deletable === false || rule.category === 'dangerous') return false
+function resolveRecoveryMode(rule: RuleWithMeta): ScanItem['recoveryMode'] {
+  if (rule.nativeManaged) return 'native-managed'
+  return 'recycle-bin'
+}
+
+function resolveDeletable(rule: RuleWithMeta, targetPath: string, protectedPaths: string[]): boolean {
+  if (rule.deletable === false || rule.category === 'dangerous' || rule.nativeManaged) return false
   if (isProtectedPath(targetPath, protectedPaths)) return false
   return true
 }
 
-function toScanItem(rule: RuleConfig, targetPath: string, size: number, protectedPaths: string[]): ScanItem {
+function toScanItem(
+  rule: RuleWithMeta,
+  targetPath: string,
+  size: number,
+  protectedPaths: string[],
+  extra?: {
+    parentTarget?: string
+    mtimeMs?: number
+    sizeIsEstimate?: boolean
+    entryKind?: ScanItem['entryKind']
+    snapshotComplete?: boolean
+  }
+): ScanItem {
+  const snapshotComplete = extra?.snapshotComplete ?? true
   return {
     id: `${rule.id}:${targetPath}`,
     ruleId: rule.id,
     ruleName: rule.name,
     category: rule.category,
     contentType: resolveContentType(rule),
+    drive: getDriveLetter(targetPath),
     path: targetPath,
     size,
+    sizeIsEstimate: extra?.sizeIsEstimate ?? true,
+    snapshotComplete,
+    entryKind: extra?.entryKind ?? 'directory',
+    mtimeMs: extra?.mtimeMs,
     deletable: resolveDeletable(rule, targetPath, protectedPaths),
+    autoSelect: shouldAutoSelect(rule, snapshotComplete),
     source: 'rule',
+    ruleSource: rule.source,
+    parentTarget: extra?.parentTarget,
     description: rule.description,
     reason: rule.reason ?? rule.description,
     impact: rule.impact,
-    rebuildable: rule.rebuildable
+    rebuildable: rule.rebuildable,
+    recoveryMode: resolveRecoveryMode(rule)
   }
 }
 
+function shouldListChildren(rule: RuleWithMeta): boolean {
+  return rule.category !== 'dangerous' && rule.deletable !== false && !rule.nativeManaged
+}
+
+async function expandDirectoryChildren(
+  rule: RuleWithMeta,
+  dirPath: string,
+  protectedPaths: string[]
+): Promise<ScanItem[]> {
+  const items: ScanItem[] = []
+
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    let listed = 0
+
+    for (const entry of entries) {
+      if (isScanCancelled()) break
+      if (entry.isSymbolicLink()) continue
+
+      const childPath = join(dirPath, entry.name)
+      try {
+        const childInfo = await lstat(childPath)
+        if (childInfo.isSymbolicLink()) continue
+
+        if (rule.maxAgeDays && childInfo.isFile()) {
+          if (!isOlderThan(rule.maxAgeDays, childInfo.mtimeMs)) continue
+        }
+
+        let size: number
+        let snapshotComplete = true
+        if (childInfo.isFile()) {
+          size = childInfo.size
+        } else {
+          const measured = await measurePathSizeDetailed(childPath, rule)
+          size = measured.size
+          snapshotComplete = !measured.incomplete
+        }
+        if (size === 0) continue
+
+        items.push(
+          toScanItem(rule, childPath, size, protectedPaths, {
+            parentTarget: dirPath,
+            mtimeMs: childInfo.mtimeMs,
+            sizeIsEstimate: !childInfo.isFile(),
+            entryKind: childInfo.isFile() ? 'file' : 'directory',
+            snapshotComplete
+          })
+        )
+        listed++
+        if (listed % 20 === 0) await yieldToEventLoop()
+        if (listed >= MAX_CHILDREN_PER_DIR) break
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // cannot read directory
+  }
+
+  return items
+}
+
+async function scanTarget(
+  rule: RuleWithMeta,
+  targetPath: string,
+  protectedPaths: string[]
+): Promise<ScanItem[]> {
+  const info = await lstat(targetPath).catch(() => null)
+  if (!info || info.isSymbolicLink()) return []
+
+  if (info.isFile()) {
+    if (rule.maxAgeDays && !isOlderThan(rule.maxAgeDays, info.mtimeMs)) return []
+    return [
+      toScanItem(rule, targetPath, info.size, protectedPaths, {
+        mtimeMs: info.mtimeMs,
+        sizeIsEstimate: false,
+        entryKind: 'file',
+        snapshotComplete: true
+      })
+    ]
+  }
+
+  if (!shouldListChildren(rule)) {
+    const measured = await measurePathSizeDetailed(targetPath, rule)
+    return [
+      toScanItem(rule, targetPath, measured.size, protectedPaths, {
+        mtimeMs: info.mtimeMs,
+        sizeIsEstimate: true,
+        entryKind: 'directory',
+        snapshotComplete: !measured.incomplete
+      })
+    ]
+  }
+
+  const children = await expandDirectoryChildren(rule, targetPath, protectedPaths)
+  if (children.length > 0) return children
+
+  const measured = await measurePathSizeDetailed(targetPath, rule)
+  if (measured.size === 0) return []
+  return [
+    toScanItem(rule, targetPath, measured.size, protectedPaths, {
+      mtimeMs: info.mtimeMs,
+      sizeIsEstimate: true,
+      entryKind: 'directory',
+      snapshotComplete: !measured.incomplete
+    })
+  ]
+}
+
 async function scanRule(
-  rule: RuleConfig,
+  rule: RuleWithMeta,
+  driveFilter: string,
   protectedPaths: string[],
   errors: ScanError[]
 ): Promise<ScanItem[]> {
   const items: ScanItem[] = []
-  const targets = await collectTargets(rule)
+  const targets = await collectRuleTargets(rule)
 
   for (const targetPath of targets) {
+    if (isScanCancelled()) break
+    if (!matchesDriveFilter(targetPath, driveFilter)) continue
+
     try {
-      const info = await lstat(targetPath).catch(() => null)
-      if (!info || info.isSymbolicLink()) continue
-
-      if (rule.maxAgeDays && info.isFile()) {
-        if (!isOlderThan(rule.maxAgeDays, info.mtimeMs)) continue
+      const targetItems = await scanTarget(rule, targetPath, protectedPaths)
+      for (const item of targetItems) {
+        if (!matchesDriveFilter(item.path, driveFilter)) continue
+        items.push(item)
       }
-
-      const size = await getPathSize(targetPath)
-      if (size === 0) continue
-
-      items.push(toScanItem(rule, targetPath, size, protectedPaths))
     } catch (err) {
       errors.push({
         ruleId: rule.id,
@@ -162,7 +213,7 @@ async function scanRule(
   return items
 }
 
-function countByCategory(rules: RuleConfig[]): Record<Category, number> {
+function countByCategory(rules: RuleWithMeta[]): Record<Category, number> {
   return {
     safe: rules.filter((r) => r.category === 'safe').length,
     recommended: rules.filter((r) => r.category === 'recommended').length,
@@ -170,11 +221,17 @@ function countByCategory(rules: RuleConfig[]): Record<Category, number> {
   }
 }
 
-export async function runRuleScan(onProgress?: ProgressCallback): Promise<{
+export async function runRuleScan(
+  driveFilter = 'all',
+  onProgress?: ProgressCallback,
+  onItems?: ItemsCallback,
+  mode: ScanProgress['mode'] = 'quick'
+): Promise<{
   items: ScanItem[]
   errors: ScanError[]
+  cancelled: boolean
 }> {
-  const rules = getActiveRules()
+  const rules = getActiveRulesWithMeta()
   const protectedPaths = getProtectedPaths()
   const errors: ScanError[] = []
   const items: ScanItem[] = []
@@ -182,11 +239,14 @@ export async function runRuleScan(onProgress?: ProgressCallback): Promise<{
   const categorySeen: Record<Category, number> = { safe: 0, recommended: 0, dangerous: 0 }
 
   for (let i = 0; i < rules.length; i++) {
+    if (isScanCancelled()) break
+    await yieldToEventLoop()
+
     const rule = rules[i]
     categorySeen[rule.category]++
 
     onProgress?.({
-      mode: 'quick',
+      mode,
       label: rule.name,
       ruleId: rule.id,
       ruleName: rule.name,
@@ -198,11 +258,12 @@ export async function runRuleScan(onProgress?: ProgressCallback): Promise<{
       categoryTotal: categoryTotals[rule.category]
     })
 
-    const ruleItems = await scanRule(rule, protectedPaths, errors)
+    const ruleItems = await scanRule(rule, driveFilter, protectedPaths, errors)
     items.push(...ruleItems)
+    if (ruleItems.length > 0) onItems?.(ruleItems)
 
     onProgress?.({
-      mode: 'quick',
+      mode,
       label: rule.name,
       ruleId: rule.id,
       ruleName: rule.name,
@@ -215,5 +276,5 @@ export async function runRuleScan(onProgress?: ProgressCallback): Promise<{
     })
   }
 
-  return { items, errors }
+  return { items, errors, cancelled: isScanCancelled() }
 }

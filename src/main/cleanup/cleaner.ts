@@ -11,7 +11,11 @@ function getAuditLogPath(): string {
 }
 
 function writeAudit(entry: Record<string, unknown>): void {
-  appendFileSync(getAuditLogPath(), JSON.stringify(entry) + '\n', 'utf-8')
+  try {
+    appendFileSync(getAuditLogPath(), JSON.stringify(entry) + '\n', 'utf-8')
+  } catch (err) {
+    console.warn('Audit log write failed:', err)
+  }
 }
 
 export async function executeCleanup(
@@ -21,13 +25,13 @@ export async function executeCleanup(
 ): Promise<CleanupResult> {
   const succeeded: string[] = []
   const errors: CleanupError[] = []
-  let freedBytes = 0
+  let movedToTrashBytes = 0
 
   for (const action of actions) {
     try {
       await shell.trashItem(action.resolvedPath)
       succeeded.push(action.resolvedPath)
-      freedBytes += action.estimatedBytes
+      movedToTrashBytes += action.estimatedLogicalBytes
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const code = err && typeof err === 'object' && 'code' in err ? String((err as NodeJS.ErrnoException).code) : undefined
@@ -37,8 +41,12 @@ export async function executeCleanup(
 
   const result: CleanupResult = {
     planId,
-    freedBytes,
-    deleted: succeeded.length,
+    estimatedLogicalBytes: actions.reduce((s, a) => s + a.estimatedLogicalBytes, 0),
+    movedToTrashBytes,
+    actuallyReclaimedBytes: 0,
+    reclaimState: 'pending',
+    recoveryMode: 'recycle-bin',
+    moved: succeeded.length,
     skipped: rejected.length,
     failed: errors.length,
     succeeded,
@@ -50,10 +58,11 @@ export async function executeCleanup(
     time: new Date().toISOString(),
     action: 'cleanup',
     planId,
-    deleted: result.deleted,
+    moved: result.moved,
     failed: result.failed,
     skipped: result.skipped,
-    freedBytes: result.freedBytes,
+    movedToTrashBytes: result.movedToTrashBytes,
+    reclaimState: result.reclaimState,
     paths: succeeded
   })
 

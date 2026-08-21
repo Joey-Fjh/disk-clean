@@ -70,16 +70,80 @@ html {
   overflow: hidden;
 }
 
-/* 可滚动但不显示滚动条 */
+/* 低干扰但可发现的滚动区 */
 .scroll-area {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .scroll-area::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+.tab:focus-visible,
+.category-tab:focus-visible,
+.item-path:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.confirm-overlay[hidden] {
+  display: none !important;
+}
+
+.confirm-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.confirm-details {
+  margin: 12px 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
 }
 
 .app {
@@ -199,6 +263,79 @@ html {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+  align-items: center;
+}
+
+.drive-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  min-width: 120px;
+  height: 36px;
+  line-height: normal;
+  appearance: auto;
+  -webkit-appearance: menulist;
+  cursor: pointer;
+}
+
+.drive-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.drive-select option {
+  color: #111;
+  background: #fff;
+}
+
+.rule-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 分类面板内：规则列表区域占据剩余高度并可滚动 */
+.category-panel > .rule-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+}
+
+.rule-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.rule-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.rule-group-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.rule-group-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.rule-group .item-list {
+  max-height: none;
 }
 
 /* ── Buttons ── */
@@ -223,7 +360,8 @@ html {
   color: var(--primary-text);
 }
 
-.btn-danger {
+.btn-danger,
+.btn-stop {
   background: var(--danger-btn);
   color: #fff;
 }
@@ -629,11 +767,10 @@ html {
   accent-color: var(--primary);
 }
 
-/* 唯一滚动区：当前分类的文件列表 */
+/* 列表项由外层 .rule-groups 统一滚动 */
 .category-panel .item-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  flex: none;
+  overflow: visible;
 }
 
 .category {

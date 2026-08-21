@@ -25,6 +25,18 @@ export function isBlacklisted(path: string, protectedPaths: string[]): boolean {
   return isProtectedPath(path, protectedPaths)
 }
 
+export function getDriveLetter(path: string): string {
+  const match = path.match(/^([A-Za-z]):/)
+  return match ? `${match[1].toUpperCase()}:` : '?'
+}
+
+export function matchesDriveFilter(path: string, drive: string): boolean {
+  if (!drive || drive === 'all') return true
+  const normalized = path.replace(/\//g, '\\')
+  const letter = drive.replace(':', '').toUpperCase()
+  return normalized.toUpperCase().startsWith(`${letter}:\\`)
+}
+
 export function isPathUnderRoot(targetPath: string, rootPath: string): boolean {
   const target = normalizePath(targetPath)
   const root = normalizePath(rootPath)

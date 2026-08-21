@@ -3,6 +3,7 @@ import http from 'http'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { runScan } from './scanner'
+import { cancelScanSession } from './scanner/scan-controller'
 import { runCleanup } from './cleanup/cleanup-service'
 import { openInExplorer } from './explorer'
 import {
@@ -12,7 +13,9 @@ import {
   importCustomRules,
   resetUserRules
 } from './rules'
-import type { CleanupRequest, RuleConfig, ScanMode, ScanProgress } from '../shared/types'
+import type { RuleConfig, ScanProgress, ScanRequest } from '../shared/types'
+import { MAX_CANDIDATE_ID_LENGTH, MAX_CLEANUP_CANDIDATE_IDS } from '../shared/cleanup-limits'
+import { listAvailableDrives, getSystemDrive } from '../shared/system-paths'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -90,7 +93,8 @@ async function createWindow(): Promise<void> {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 
@@ -121,15 +125,50 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-ipcMain.handle('scan:start', async (_event, mode: ScanMode = 'quick') => {
-  const send = (progress: ScanProgress) => {
+ipcMain.handle('scan:start', async (_event, request: ScanRequest = {}) => {
+  const sendProgress = (progress: ScanProgress) => {
     mainWindow?.webContents.send('scan:progress', progress)
   }
-  return runScan(mode, send)
+  const sendItems = (items: import('../shared/types').ScanItem[]) => {
+    mainWindow?.webContents.send('scan:items', items)
+  }
+  return runScan(request, sendProgress, sendItems)
 })
 
-ipcMain.handle('cleanup:execute', async (_event, request: CleanupRequest) => {
-  return runCleanup(request)
+ipcMain.handle('scan:cancel', () => {
+  cancelScanSession()
+})
+
+ipcMain.handle('system:listDrives', () => {
+  const drives = listAvailableDrives().map((root) => root.replace(/\\$/, ''))
+  return drives.length > 0 ? drives : [getSystemDrive()]
+})
+
+ipcMain.handle('cleanup:execute', async (event, request: unknown) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    throw new Error('未授权的清理请求')
+  }
+  if (!request || typeof request !== 'object') {
+    throw new Error('无效的清理请求')
+  }
+  const payload = request as Record<string, unknown>
+  if (typeof payload.sessionId !== 'string' || !payload.sessionId.trim()) {
+    throw new Error('无效的扫描会话')
+  }
+  if (!Array.isArray(payload.candidateIds) || !payload.candidateIds.every((id) => typeof id === 'string')) {
+    throw new Error('无效的候选项列表')
+  }
+  const candidateIds = payload.candidateIds as string[]
+  if (candidateIds.length > MAX_CLEANUP_CANDIDATE_IDS) {
+    throw new Error(`候选项数量超过上限 ${MAX_CLEANUP_CANDIDATE_IDS}`)
+  }
+  if (candidateIds.some((id) => id.length > MAX_CANDIDATE_ID_LENGTH)) {
+    throw new Error('候选项 ID 过长')
+  }
+  return runCleanup({
+    sessionId: payload.sessionId.trim(),
+    candidateIds
+  })
 })
 
 ipcMain.handle('path:open', async (_event, targetPath: string) => {

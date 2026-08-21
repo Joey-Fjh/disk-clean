@@ -1,46 +1,58 @@
-import type { ScanMode, ScanProgress, ScanResult } from '../../shared/types'
+import type { ScanProgress, ScanRequest, ScanResult, ScanItem } from '../../shared/types'
 import { runRuleScan } from './rule-scanner'
-import { runDiskAnalysis, analyzeUserProfiles } from './disk-analyzer'
-import { enrichCandidate } from './rule-matcher'
+import { runDiskAnalysis } from './disk-analyzer'
+import { beginScanSession, endScanSession } from './scan-controller'
+import { createScanSession } from '../scan/scan-session-store'
+import { getAllRulesWithMeta } from '../rules'
 
 type ProgressCallback = (progress: ScanProgress) => void
+type ItemsCallback = (items: ScanItem[]) => void
 
-export async function runScan(mode: ScanMode, onProgress?: ProgressCallback): Promise<ScanResult> {
-  if (mode === 'quick') {
-    const { items, errors } = await runRuleScan(onProgress)
+function getRulesVersion(): string {
+  return getAllRulesWithMeta()
+    .map((r) => `${r.id}:${r.enabled ? 1 : 0}`)
+    .join('|')
+}
+
+export async function runScan(
+  request: ScanRequest = {},
+  onProgress?: ProgressCallback,
+  onItems?: ItemsCallback
+): Promise<ScanResult> {
+  beginScanSession()
+  const drive = request.drive ?? 'all'
+  const mode = request.mode ?? 'quick'
+
+  try {
+    let items: ScanItem[] = []
+    let errors: ScanResult['errors'] = []
+    let cancelled = false
+
+    if (mode === 'full') {
+      const analysis = await runDiskAnalysis(drive, onProgress)
+      items = analysis.items
+      errors = analysis.errors
+      cancelled = analysis.cancelled ?? false
+    } else {
+      const ruleScan = await runRuleScan(drive, onProgress, onItems, mode)
+      items = ruleScan.items
+      errors = ruleScan.errors
+      cancelled = ruleScan.cancelled
+    }
+
+    const session = createScanSession(drive, mode, getRulesVersion(), items)
+
     return {
+      sessionId: session.sessionId,
+      drive,
       mode,
       items,
       errors,
+      cancelled,
       totalSize: items.reduce((sum, item) => sum + item.size, 0),
       scannedAt: new Date().toISOString()
     }
-  }
-
-  const { items: roots, errors } = await runDiskAnalysis(onProgress)
-  const profiles = await analyzeUserProfiles(onProgress)
-
-  const merged = [...roots, ...profiles]
-
-  // RuleMatcher：尝试为分析结果补充规则解释
-  const items = merged.map((item) =>
-    enrichCandidate(item.path, item.size, {
-      name: item.ruleName,
-      contentType: item.contentType,
-      category: item.category,
-      deletable: item.deletable,
-      reason: item.reason,
-      impact: item.impact
-    })
-  )
-
-  items.sort((a, b) => b.size - a.size)
-
-  return {
-    mode,
-    items,
-    errors,
-    totalSize: items.reduce((sum, item) => sum + item.size, 0),
-    scannedAt: new Date().toISOString()
+  } finally {
+    endScanSession()
   }
 }

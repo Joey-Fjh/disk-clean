@@ -2,14 +2,18 @@ import type {
   CleanupRequest,
   CleanupResult,
   RuleWithMeta,
-  ScanMode,
+  ScanItem,
   ScanProgress,
+  ScanRequest,
   ScanResult
 } from '../shared/types'
 
 export interface DiskCleanAPI {
-  startScan: (mode: ScanMode) => Promise<ScanResult>
+  listDrives: () => Promise<string[]>
+  startScan: (request: ScanRequest) => Promise<ScanResult>
+  cancelScan: () => Promise<void>
   onScanProgress: (callback: (progress: ScanProgress) => void) => () => void
+  onScanItems: (callback: (items: ScanItem[]) => void) => () => void
   executeCleanup: (request: CleanupRequest) => Promise<CleanupResult>
   listRules: () => Promise<RuleWithMeta[]>
   setRuleEnabled: (ruleId: string, enabled: boolean) => Promise<RuleWithMeta[]>

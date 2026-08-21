@@ -3,17 +3,25 @@ import type {
   CleanupRequest,
   CleanupResult,
   RuleWithMeta,
-  ScanMode,
+  ScanItem,
   ScanProgress,
+  ScanRequest,
   ScanResult
 } from '../shared/types'
 
 contextBridge.exposeInMainWorld('diskClean', {
-  startScan: (mode: ScanMode): Promise<ScanResult> => ipcRenderer.invoke('scan:start', mode),
+  listDrives: (): Promise<string[]> => ipcRenderer.invoke('system:listDrives'),
+  startScan: (request: ScanRequest): Promise<ScanResult> => ipcRenderer.invoke('scan:start', request),
+  cancelScan: (): Promise<void> => ipcRenderer.invoke('scan:cancel'),
   onScanProgress: (callback: (progress: ScanProgress) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: ScanProgress) => callback(progress)
     ipcRenderer.on('scan:progress', handler)
     return () => ipcRenderer.removeListener('scan:progress', handler)
+  },
+  onScanItems: (callback: (items: ScanItem[]) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, items: ScanItem[]) => callback(items)
+    ipcRenderer.on('scan:items', handler)
+    return () => ipcRenderer.removeListener('scan:items', handler)
   },
   executeCleanup: (request: CleanupRequest): Promise<CleanupResult> =>
     ipcRenderer.invoke('cleanup:execute', request),

@@ -2,7 +2,9 @@ export type Category = 'safe' | 'recommended' | 'dangerous'
 
 export type ScanMode = 'quick' | 'full'
 
-/** 按数据性质分类（产品核心） */
+export type ReclaimState = 'pending' | 'reclaimed' | 'unknown'
+export type RecoveryMode = 'recycle-bin' | 'none' | 'native-managed'
+
 export type ContentType =
   | 'system-temp'
   | 'browser-cache'
@@ -40,6 +42,7 @@ export interface RuleConfig {
   rebuildable?: boolean
   cleanupStrategy?: CleanupStrategy
   deletable?: boolean
+  nativeManaged?: boolean
 }
 
 export interface RuleWithMeta extends RuleConfig {
@@ -67,10 +70,11 @@ export interface ScanProgress {
   total: number
   categoryCurrent: number
   categoryTotal: number
-  /** 兼容旧 UI 字段 */
   ruleId?: string
   ruleName?: string
 }
+
+export type EntryKind = 'file' | 'directory'
 
 export interface ScanItem {
   id: string
@@ -78,20 +82,40 @@ export interface ScanItem {
   ruleName: string
   category: Category
   contentType: ContentType
+  drive: string
   path: string
   size: number
+  sizeIsEstimate: boolean
+  sizePartial?: boolean
+  snapshotComplete: boolean
+  entryKind: EntryKind
+  mtimeMs?: number
   deletable: boolean
+  autoSelect: boolean
   source: 'rule' | 'analyzer'
+  parentTarget?: string
   description?: string
   reason?: string
   impact?: string
   rebuildable?: boolean
+  recoveryMode?: RecoveryMode
+  ruleSource?: 'builtin' | 'custom'
+}
+
+export type ScanCandidate = ScanItem
+
+export interface ScanRequest {
+  drive?: string
+  mode?: ScanMode
 }
 
 export interface ScanResult {
+  sessionId: string
+  drive: string
   mode: ScanMode
   items: ScanItem[]
   errors: ScanError[]
+  cancelled?: boolean
   totalSize: number
   scannedAt: string
 }
@@ -107,28 +131,20 @@ export interface CleanupAction {
   ruleId: string
   target: string
   operation: 'trash'
-  estimatedBytes: number
+  estimatedLogicalBytes: number
 }
 
 export interface CleanupPlan {
   id: string
   actions: CleanupAction[]
-  estimatedBytes: number
+  estimatedLogicalBytes: number
   riskSummary: Record<Category, number>
   createdAt: number
 }
 
-export interface CleanupRequestItem {
-  id: string
-  ruleId: string
-  path: string
-  size: number
-  category: Category
-  deletable: boolean
-}
-
 export interface CleanupRequest {
-  items: CleanupRequestItem[]
+  sessionId: string
+  candidateIds: string[]
 }
 
 export interface CleanupError {
@@ -139,8 +155,12 @@ export interface CleanupError {
 
 export interface CleanupResult {
   planId: string
-  freedBytes: number
-  deleted: number
+  estimatedLogicalBytes: number
+  movedToTrashBytes: number
+  actuallyReclaimedBytes: number
+  reclaimState: ReclaimState
+  recoveryMode: RecoveryMode
+  moved: number
   skipped: number
   failed: number
   succeeded: string[]
@@ -149,15 +169,15 @@ export interface CleanupResult {
 }
 
 export const CATEGORY_LABELS: Record<Category, string> = {
-  safe: '低风险',
-  recommended: '需确认',
-  dangerous: '仅查看'
+  safe: '建议清理',
+  recommended: '谨慎处理',
+  dangerous: '仅分析'
 }
 
 export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
-  safe: '明确缓存 / 临时文件，一般可放心清理',
-  recommended: '可重新生成，但可能有使用成本',
-  dangerous: '用户数据 / 系统数据 / 状态数据，只展示不删除'
+  safe: '明确缓存 / 临时文件，规则精确匹配',
+  recommended: '可重建但有成本，默认不勾选',
+  dangerous: '用户 / 系统 / 状态数据，只分析不删除'
 }
 
 export const CATEGORY_ORDER: Category[] = ['safe', 'recommended', 'dangerous']
@@ -181,6 +201,6 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
 }
 
 export const SCAN_MODE_LABELS: Record<ScanMode, string> = {
-  quick: '快速扫描',
+  quick: '安全清理',
   full: '空间分析'
 }
