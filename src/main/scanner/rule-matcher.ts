@@ -2,6 +2,7 @@ import { join, basename } from 'path'
 import { existsSync } from 'fs'
 import { readdir } from 'fs/promises'
 import type { Category, ContentType, EntryKind, RuleConfig, ScanItem } from '../../shared/types'
+import { mapSpaceScanItem } from '../../shared/candidate-model'
 import { getDriveLetter, expandEnvVars, isPathUnderRoot } from '../../shared/path-utils'
 import { getActiveRules } from '../rules'
 
@@ -44,11 +45,11 @@ export function enrichCandidate(
 
   if (matched) {
     const { rule } = matched
-    return {
-      id: `${rule.id}:${path}`,
-      ruleId: rule.id,
-      ruleName: rule.name,
-      category: rule.category,
+    return mapSpaceScanItem({
+      id: `analyzer:${path}`,
+      ruleId: '__analyzer__',
+      ruleName: fallback.name,
+      category: 'dangerous',
       contentType: rule.contentType ?? fallback.contentType,
       drive: getDriveLetter(path),
       path,
@@ -57,18 +58,23 @@ export function enrichCandidate(
       sizePartial: fallback.sizePartial,
       snapshotComplete: fallback.sizePartial !== true,
       entryKind,
-      deletable: fallback.deletable && rule.deletable !== false && rule.category !== 'dangerous' && !rule.nativeManaged,
+      deletable: false,
       autoSelect: false,
       source: 'analyzer',
       description: rule.description,
-      reason: rule.reason ?? rule.description ?? fallback.reason,
-      impact: rule.impact ?? fallback.impact,
+      reason: fallback.reason ?? rule.reason ?? rule.description,
+      impact: fallback.impact ?? rule.impact,
       rebuildable: rule.rebuildable,
-      recoveryMode: rule.nativeManaged ? 'native-managed' : 'none'
-    }
+      recoveryMode: rule.nativeManaged ? 'native-managed' : 'none',
+      discoverySources: ['space-scan'],
+      evidence: [],
+      judgment: { status: 'pending', source: 'none', confidence: 'unknown', basis: [] },
+      selection: { selectable: false },
+      suggestedAction: 'none'
+    })
   }
 
-  return {
+  return mapSpaceScanItem({
     id: `analyzer:${path}`,
     ruleId: '__analyzer__',
     ruleName: fallback.name,
@@ -81,13 +87,18 @@ export function enrichCandidate(
     sizePartial: fallback.sizePartial,
     snapshotComplete: fallback.sizePartial !== true,
     entryKind,
-    deletable: fallback.deletable,
+    deletable: false,
     autoSelect: false,
     source: 'analyzer',
     reason: fallback.reason,
     impact: fallback.impact,
-    recoveryMode: 'none'
-  }
+    recoveryMode: 'none',
+    discoverySources: ['space-scan'],
+    evidence: [],
+    judgment: { status: 'pending', source: 'none', confidence: 'unknown', basis: [] },
+    selection: { selectable: false },
+    suggestedAction: 'none'
+  })
 }
 
 export async function listDriveRootEntries(driveRoot: string): Promise<string[]> {

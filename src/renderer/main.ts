@@ -1,13 +1,18 @@
 /// <reference path="../preload/index.d.ts" />
 import type { Category, RuleWithMeta, ScanError, ScanItem, ScanResult } from '../shared/types'
 import {
+  CANDIDATE_TAB_LABELS,
   CATEGORY_DESCRIPTIONS,
-  CATEGORY_LABELS,
   CATEGORY_ORDER,
   CONTENT_TYPE_LABELS,
-  SCAN_MODE_LABELS
+  RULE_CATEGORY_LABELS,
+  SCAN_PHASE_LABELS
 } from '../shared/types'
 import { showConfirmDialog } from './confirm-dialog'
+import { upsertScanItems } from '../shared/scan-item-accumulator'
+import { normalizeCandidate } from '../shared/candidate-model'
+import { RuleGroupExpansionState } from './rule-group-state'
+import { buildScanItemRenderInput } from './candidate-render'
 import { createScanItemElement } from './safe-render'
 
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -64,7 +69,6 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 // ── Scan / Clean ──
 const driveSelect = document.getElementById('drive-select') as HTMLSelectElement
-const modeSelect = document.getElementById('mode-select') as HTMLSelectElement
 const scanBtn = document.getElementById('scan-btn') as HTMLButtonElement
 const cleanBtn = document.getElementById('clean-btn') as HTMLButtonElement
 const summary = document.getElementById('summary') as HTMLElement
@@ -84,11 +88,7 @@ let scanResult: ScanResult | null = null
 let selectedIds = new Set<string>()
 let scanning = false
 let renderTimer: number | null = null
-
-function basename(path: string): string {
-  const parts = path.replace(/\//g, '\\').split('\\')
-  return parts[parts.length - 1] || path
-}
+const ruleGroupExpansion = new RuleGroupExpansionState()
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -108,21 +108,34 @@ function updateProgressUI(p: {
   label: string
   ruleName?: string
   category: Category
+  phase?: 'space-discovery' | 'rule-identification'
   current: number
   total: number
   categoryCurrent: number
   categoryTotal: number
 }): void {
-  progressLabel.textContent = `正在扫描 · 第 ${p.current}/${p.total} 条规则`
-  progressRule.textContent = p.label || p.ruleName || '…'
-  progressHint.textContent = `${CATEGORY_LABELS[p.category]} · 本档 ${p.categoryCurrent}/${p.categoryTotal}`
+  const phaseLabel = p.phase ? SCAN_PHASE_LABELS[p.phase] : '扫描'
+  progressLabel.textContent = `正在扫描 · ${phaseLabel}`
+
+  if (p.phase === 'space-discovery') {
+    progressRule.textContent = p.label || '…'
+    progressHint.textContent = `空间发现 · ${p.current}/${p.total}`
+  } else {
+    progressRule.textContent = p.label || p.ruleName || '…'
+    progressHint.textContent = `${RULE_CATEGORY_LABELS[p.category]} · 本档 ${p.categoryCurrent}/${p.categoryTotal}`
+  }
 
   const percent = p.total > 0 ? Math.min((p.current / p.total) * 100, 95) : 0
   progressFill.style.width = `${percent}%`
 }
 
+function isSelectable(item: ScanItem): boolean {
+  const normalized = normalizeCandidate(item)
+  return normalized.selection.selectable
+}
+
 function updateLiveSummary(items: ScanItem[]): void {
-  const deletableSize = items.filter((i) => i.deletable).reduce((s, i) => s + i.size, 0)
+  const deletableSize = items.filter((i) => isSelectable(i)).reduce((s, i) => s + i.size, 0)
   totalSizeEl.textContent = formatSize(deletableSize)
   itemCountEl.textContent = String(items.length)
 }
@@ -141,7 +154,6 @@ function setScanning(active: boolean): void {
   scanBtn.classList.toggle('btn-primary', !active)
   scanBtn.classList.toggle('btn-stop', active)
   driveSelect.disabled = active
-  modeSelect.disabled = active
   if (active) {
     cleanBtn.disabled = true
   } else {
@@ -151,7 +163,7 @@ function setScanning(active: boolean): void {
 
 function finishScan(result: ScanResult): void {
   scanResult = result
-  const { items, errors, cancelled, drive, mode } = result
+  const { items, errors, cancelled, drive } = result
 
   selectedIds = new Set(items.filter((i) => getDefaultChecked(i)).map((i) => i.id))
 
@@ -165,18 +177,26 @@ function finishScan(result: ScanResult): void {
   updateSelectedSummary()
 
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
-  const modeLabel = SCAN_MODE_LABELS[mode]
   if (cancelled) {
-    statusText.textContent = `${driveLabel} · ${modeLabel}已停止 · 保留 ${items.length} 项结果`
+    statusText.textContent = `${driveLabel} · 扫描已停止 · 保留 ${items.length} 项结果`
   } else if (errors.length > 0) {
-    statusText.textContent = `${driveLabel} · ${modeLabel}完成，${errors.length} 个路径因权限等原因跳过`
+    statusText.textContent = `${driveLabel} · 扫描完成，${errors.length} 个路径因权限等原因跳过`
   } else {
-    statusText.textContent = `${driveLabel} · ${modeLabel}完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
+    statusText.textContent = `${driveLabel} · 扫描完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
   }
 }
 
 function getDefaultChecked(item: ScanItem): boolean {
-  return item.deletable && item.autoSelect
+  const normalized = normalizeCandidate(item)
+  return normalized.selection.selectable && normalized.autoSelect
+}
+
+function renderScanItemElement(item: ScanItem): HTMLLIElement {
+  return createScanItemElement(
+    buildScanItemRenderInput(item, {
+      contentTypeLabel: CONTENT_TYPE_LABELS[item.contentType]
+    })
+  )
 }
 
 function updateSelectedSummary(): void {
@@ -221,7 +241,7 @@ function renderCategories(items: ScanItem[]): void {
   panels.className = 'category-panels'
 
   function getDeletableItems(catItems: ScanItem[]): ScanItem[] {
-    return catItems.filter((item) => item.deletable)
+    return catItems.filter((item) => isSelectable(item))
   }
 
   function updateSelectAllState(selectAllCb: HTMLInputElement, catItems: ScanItem[]): void {
@@ -248,7 +268,11 @@ function renderCategories(items: ScanItem[]): void {
     updateSelectedSummary()
   }
 
-  function renderItemList(catItems: ScanItem[], selectAllCb: HTMLInputElement): HTMLElement {
+  function renderItemList(
+    category: Category,
+    catItems: ScanItem[],
+    selectAllCb: HTMLInputElement
+  ): HTMLElement {
     const container = document.createElement('div')
     container.className = 'rule-groups'
 
@@ -259,41 +283,58 @@ function renderCategories(items: ScanItem[]): void {
       groups.set(item.ruleName, list)
     }
 
+    let groupIndex = 0
     for (const [ruleName, ruleItems] of groups) {
+      const isFirstInCategory = groupIndex === 0
+      groupIndex += 1
+      const isExpanded = ruleGroupExpansion.isExpanded(category, ruleName, isFirstInCategory)
+
       const group = document.createElement('section')
-      group.className = 'rule-group'
+      group.className = `rule-group${isExpanded ? ' is-expanded' : ' is-collapsed'}`
 
       const ruleSize = ruleItems.reduce((s, i) => s + i.size, 0)
       const drives = [...new Set(ruleItems.map((i) => i.drive))].join('、')
 
-      const header = document.createElement('div')
+      const header = document.createElement('button')
+      header.type = 'button'
       header.className = 'rule-group-header'
+      header.setAttribute('aria-expanded', String(isExpanded))
+      const chevron = document.createElement('span')
+      chevron.className = 'rule-group-chevron'
+      chevron.setAttribute('aria-hidden', 'true')
       const nameSpan = document.createElement('span')
       nameSpan.className = 'rule-group-name'
       nameSpan.textContent = ruleName
+      nameSpan.title = ruleName
       const metaSpan = document.createElement('span')
       metaSpan.className = 'rule-group-meta'
       metaSpan.textContent = `${ruleItems.length} 项 · ${formatSize(ruleSize)} · ${drives}`
-      header.append(nameSpan, metaSpan)
+      header.append(chevron, nameSpan, metaSpan)
+
+      header.addEventListener('click', () => {
+        const nextExpanded = !group.classList.contains('is-expanded')
+        group.classList.toggle('is-expanded', nextExpanded)
+        group.classList.toggle('is-collapsed', !nextExpanded)
+        header.setAttribute('aria-expanded', String(nextExpanded))
+        ruleGroupExpansion.setExpanded(category, ruleName, nextExpanded)
+      })
+
       group.appendChild(header)
+
+      const body = document.createElement('div')
+      body.className = 'rule-group-body'
 
       const list = document.createElement('ul')
       list.className = 'item-list'
 
       for (const item of ruleItems) {
-        const li = createScanItemElement({
-          fileName: basename(item.path),
-          path: item.path,
-          typeLabel: `${CONTENT_TYPE_LABELS[item.contentType]} · ${item.drive} · 逻辑大小估算`,
-          sizeLabel: formatSize(item.size),
-          reason: item.reason,
-          impact: item.impact
-        })
+        const normalized = normalizeCandidate(item)
+        const li = renderScanItemElement(item)
 
         const checkbox = li.querySelector('input') as HTMLInputElement
         checkbox.dataset.id = item.id
         checkbox.checked = selectedIds.has(item.id)
-        checkbox.disabled = !item.deletable
+        checkbox.disabled = !normalized.selection.selectable
         checkbox.addEventListener('change', () => {
           if (checkbox.checked) selectedIds.add(item.id)
           else selectedIds.delete(item.id)
@@ -313,7 +354,8 @@ function renderCategories(items: ScanItem[]): void {
         list.appendChild(li)
       }
 
-      group.appendChild(list)
+      body.appendChild(list)
+      group.appendChild(body)
       container.appendChild(group)
     }
 
@@ -344,7 +386,7 @@ function renderCategories(items: ScanItem[]): void {
     tab.setAttribute('role', 'tab')
     tab.setAttribute('aria-selected', String(category === firstWithItems))
     tab.innerHTML = `
-      <span class="category-tab-label">${CATEGORY_LABELS[category]}</span>
+      <span class="category-tab-label">${CANDIDATE_TAB_LABELS[category]}</span>
       <span class="category-tab-meta">${catItems.length} 项 · ${formatSize(catSize)}</span>
     `
     tab.addEventListener('click', () => switchCategory(category))
@@ -358,7 +400,7 @@ function renderCategories(items: ScanItem[]): void {
     panel.innerHTML = `
       <div class="category-panel-header">
         <div class="category-panel-title">
-          <span class="category-badge ${badgeClass}">${CATEGORY_LABELS[category]}</span>
+          <span class="category-badge ${badgeClass}">${CANDIDATE_TAB_LABELS[category]}</span>
           <p class="category-desc">${CATEGORY_DESCRIPTIONS[category]}</p>
         </div>
       </div>
@@ -370,7 +412,7 @@ function renderCategories(items: ScanItem[]): void {
       empty.textContent = '未发现可清理项'
       panel.appendChild(empty)
     } else {
-      const deletableCount = catItems.filter((i) => i.deletable).length
+      const deletableCount = catItems.filter((i) => isSelectable(i)).length
       if (deletableCount > 0) {
         const header = panel.querySelector('.category-panel-header')!
         const selectAllLabel = document.createElement('label')
@@ -380,7 +422,7 @@ function renderCategories(items: ScanItem[]): void {
         selectAllCb.className = 'select-all-checkbox'
         selectAllLabel.append(selectAllCb, document.createTextNode('全选'))
 
-        const list = renderItemList(catItems, selectAllCb)
+        const list = renderItemList(category, catItems, selectAllCb)
         list.classList.add('scroll-area')
         updateSelectAllState(selectAllCb, catItems)
 
@@ -391,7 +433,7 @@ function renderCategories(items: ScanItem[]): void {
         header.appendChild(selectAllLabel)
         panel.appendChild(list)
       } else {
-        const list = renderItemList(catItems, document.createElement('input'))
+        const list = renderItemList(category, catItems, document.createElement('input'))
         list.classList.add('scroll-area')
         panel.appendChild(list)
       }
@@ -407,17 +449,17 @@ function renderCategories(items: ScanItem[]): void {
 
 async function startScan(): Promise<void> {
   const drive = driveSelect.value || 'all'
-  const mode = (modeSelect.value || 'quick') as ScanResult['mode']
   setScanning(true)
   selectedIds = new Set()
+  ruleGroupExpansion.clear()
   scanResult = null
   progress.hidden = false
   summary.hidden = false
   categoriesEl.innerHTML = ''
   progressFill.style.width = '0%'
   progressRule.textContent = '准备开始…'
-  progressLabel.textContent = '正在扫描 · 初始化'
-  progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · ${SCAN_MODE_LABELS[mode]}`
+  progressLabel.textContent = '正在扫描 · 空间发现'
+  progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · 统一扫描`
   statusText.textContent = '扫描中，发现的项目将实时列出…'
 
   let accumulatedItems: ScanItem[] = []
@@ -429,13 +471,13 @@ async function startScan(): Promise<void> {
   })
 
   const unsubscribeItems = window.diskClean.onScanItems((batch) => {
-    accumulatedItems = [...accumulatedItems, ...batch]
+    accumulatedItems = upsertScanItems(accumulatedItems, batch).items
     updateLiveSummary(accumulatedItems)
     scheduleRender(accumulatedItems)
   })
 
   try {
-    const result = await window.diskClean.startScan({ drive, mode })
+    const result = await window.diskClean.startScan({ drive })
     finishScan(result)
   } catch (err) {
     statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
@@ -459,13 +501,13 @@ async function handleScanButtonClick(): Promise<void> {
 async function cleanSelected(): Promise<void> {
   if (!scanResult?.sessionId) return
 
-  const selected = scanResult.items.filter((i) => selectedIds.has(i.id) && i.deletable)
+  const selected = scanResult.items.filter((i) => selectedIds.has(i.id) && isSelectable(i))
   if (selected.length === 0) return
 
   const totalSize = selected.reduce((s, i) => s + i.size, 0)
   const riskLines = CATEGORY_ORDER.map((cat) => {
     const count = selected.filter((i) => i.category === cat).length
-    return count > 0 ? `${CATEGORY_LABELS[cat]} ${count} 项` : null
+    return count > 0 ? `${CANDIDATE_TAB_LABELS[cat]} ${count} 项` : null
   })
     .filter(Boolean)
     .join(' · ')
@@ -568,7 +610,7 @@ function renderRulesList(): void {
     if (filter === 'all') {
       const title = document.createElement('div')
       title.className = 'rules-group-title'
-      title.textContent = CATEGORY_LABELS[group.category]
+      title.textContent = RULE_CATEGORY_LABELS[group.category]
       rulesList.appendChild(title)
     }
 

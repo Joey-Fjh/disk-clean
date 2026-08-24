@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { readdir, lstat } from 'fs/promises'
 import type { Category, ContentType, RuleWithMeta, ScanItem, ScanError, ScanProgress } from '../../shared/types'
+import { mapRuleScanItem } from '../../shared/candidate-model'
 import { shouldAutoSelect } from '../../shared/candidate-policy'
 import { expandEnvVars, getDriveLetter, isProtectedPath, matchesDriveFilter } from '../../shared/path-utils'
 import { collectRuleTargets } from '../../shared/rule-match'
@@ -47,7 +48,7 @@ function toScanItem(
   }
 ): ScanItem {
   const snapshotComplete = extra?.snapshotComplete ?? true
-  return {
+  return mapRuleScanItem({
     id: `${rule.id}:${targetPath}`,
     ruleId: rule.id,
     ruleName: rule.name,
@@ -69,8 +70,18 @@ function toScanItem(
     reason: rule.reason ?? rule.description,
     impact: rule.impact,
     rebuildable: rule.rebuildable,
-    recoveryMode: resolveRecoveryMode(rule)
-  }
+    recoveryMode: resolveRecoveryMode(rule),
+    discoverySources: ['rule'],
+    evidence: [],
+    judgment: {
+      status: 'pending',
+      source: 'none',
+      confidence: 'unknown',
+      basis: []
+    },
+    selection: { selectable: false },
+    suggestedAction: 'none'
+  })
 }
 
 function shouldListChildren(rule: RuleWithMeta): boolean {

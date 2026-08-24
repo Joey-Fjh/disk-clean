@@ -8,6 +8,7 @@ import { displayNameForPath, enrichCandidate, listDriveRootEntries } from './rul
 import { isScanCancelled } from './scan-controller'
 
 type ProgressCallback = (progress: ScanProgress) => void
+type ItemsCallback = (items: ScanItem[]) => void
 
 function protectedLabel(path: string, protectedPaths: string[], labels: Record<string, string>): string {
   const normalized = path.toLowerCase()
@@ -59,15 +60,15 @@ async function analyzePath(
   const reason = sizePartial ? `${reasonBase}，深度受限可能不完整` : reasonBase
 
   return enrichCandidate(path, size, {
-    name,
-    contentType: protectedHit ? 'system-protected' : info.isFile() ? 'large-file' : 'large-dir',
-    category: 'dangerous',
-    deletable: false,
-    reason,
-    impact: protectedHit ? '不可直接删除' : '仅展示占用，不判断是否为垃圾',
-    entryKind,
-    sizePartial
-  })
+      name,
+      contentType: protectedHit ? 'system-protected' : info.isFile() ? 'large-file' : 'large-dir',
+      category: 'dangerous',
+      deletable: false,
+      reason,
+      impact: protectedHit ? '不可直接删除' : '仅展示占用，不判断是否为垃圾',
+      entryKind,
+      sizePartial
+    })
 }
 
 async function collectTargetsForDrive(driveFilter: string): Promise<string[]> {
@@ -99,7 +100,8 @@ function displayNameForTarget(path: string): string {
 
 export async function runDiskAnalysis(
   driveFilter = 'all',
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  onItems?: ItemsCallback
 ): Promise<{
   items: ScanItem[]
   errors: ScanError[]
@@ -132,7 +134,10 @@ export async function runDiskAnalysis(
 
     try {
       const item = await analyzePath(path, protectedPaths, labels, label)
-      if (item) items.push(item)
+      if (item) {
+        items.push(item)
+        onItems?.([item])
+      }
     } catch (err) {
       errors.push({
         ruleId: '__analyzer__',

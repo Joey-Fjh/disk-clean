@@ -1,6 +1,8 @@
 export type Category = 'safe' | 'recommended' | 'dangerous'
 
-export type ScanMode = 'quick' | 'full'
+export type ScanMode = 'quick' | 'full' | 'combined'
+
+export type ScanPhase = 'space-discovery' | 'rule-identification'
 
 export type ReclaimState = 'pending' | 'reclaimed' | 'unknown'
 export type RecoveryMode = 'recycle-bin' | 'none' | 'native-managed'
@@ -63,6 +65,7 @@ export interface UserRulesState {
 
 export interface ScanProgress {
   mode: ScanMode
+  phase?: ScanPhase
   label: string
   category: Category
   status: 'scanning' | 'done'
@@ -75,6 +78,45 @@ export interface ScanProgress {
 }
 
 export type EntryKind = 'file' | 'directory'
+
+export type DiscoverySource = 'space-scan' | 'rule' | 'local-feature' | 'agent'
+
+export type JudgmentStatus = 'pending' | 'suggested' | 'caution' | 'keep' | 'uncertain'
+
+export type JudgmentSource = 'legacy-rule' | 'agent' | 'local-policy' | 'none'
+
+export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown'
+
+export type SuggestedAction = 'recycle' | 'delete-file' | 'delete-directory-contents' | 'none'
+
+export interface CandidateEvidence {
+  source: DiscoverySource
+  summary: string
+  ruleId?: string
+  ruleName?: string
+}
+
+export interface CandidateJudgment {
+  status: JudgmentStatus
+  source: JudgmentSource
+  confidence: ConfidenceLevel
+  basis: string[]
+}
+
+export interface CandidateSelection {
+  selectable: boolean
+  notSelectableReason?: string
+}
+
+/** 空间占用观察（展示用）；与 rule-backed 执行快照分离。 */
+export interface OccupancyObservation {
+  size: number
+  sizePartial?: boolean
+  snapshotComplete: boolean
+  mtimeMs?: number
+  entryKind: EntryKind
+  source: 'space-scan'
+}
 
 export interface ScanItem {
   id: string
@@ -100,6 +142,18 @@ export interface ScanItem {
   rebuildable?: boolean
   recoveryMode?: RecoveryMode
   ruleSource?: 'builtin' | 'custom'
+  /** 发现来源（可多项）；legacy `source` 仅表示主来源。 */
+  discoverySources: DiscoverySource[]
+  /** 可展示的证据摘要。 */
+  evidence: CandidateEvidence[]
+  /** Agent / 规则 / 本地策略判断结果。 */
+  judgment: CandidateJudgment
+  /** 用户是否可勾选清理。 */
+  selection: CandidateSelection
+  /** 建议的受限清理动作（白名单；本阶段不扩展 Cleaner）。 */
+  suggestedAction: SuggestedAction
+  /** 空间占用观察；rule-backed 合并项的执行字段不得取自此处。 */
+  occupancyObservation?: OccupancyObservation
 }
 
 export type ScanCandidate = ScanItem
@@ -168,16 +222,25 @@ export interface CleanupResult {
   rejected: Array<{ path: string; reason: string }>
 }
 
-export const CATEGORY_LABELS: Record<Category, string> = {
+export const CANDIDATE_TAB_LABELS: Record<Category, string> = {
   safe: '建议清理',
   recommended: '谨慎处理',
-  dangerous: '仅分析'
+  dangerous: '待判断 / 不建议'
+}
+
+/** @deprecated 使用 CANDIDATE_TAB_LABELS；保留别名避免外部引用断裂 */
+export const CATEGORY_LABELS = CANDIDATE_TAB_LABELS
+
+export const RULE_CATEGORY_LABELS: Record<Category, string> = {
+  safe: '建议清理规则',
+  recommended: '谨慎处理规则',
+  dangerous: '仅展示 / 禁止清理规则'
 }
 
 export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
   safe: '明确缓存 / 临时文件，规则精确匹配',
   recommended: '可重建但有成本，默认不勾选',
-  dangerous: '用户 / 系统 / 状态数据，只分析不删除'
+  dangerous: '等待判断或不建议清理；当前版本空间发现项显示为待判断，尚未启用智能判断'
 }
 
 export const CATEGORY_ORDER: Category[] = ['safe', 'recommended', 'dangerous']
@@ -202,5 +265,11 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
 
 export const SCAN_MODE_LABELS: Record<ScanMode, string> = {
   quick: '安全清理',
-  full: '空间分析'
+  full: '空间分析',
+  combined: '统一扫描'
+}
+
+export const SCAN_PHASE_LABELS: Record<ScanPhase, string> = {
+  'space-discovery': '空间发现',
+  'rule-identification': '规则识别'
 }
