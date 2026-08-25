@@ -17,6 +17,10 @@ export interface ScanItemRenderInput {
   judgmentLabel?: string
   judgmentClass?: string
   notSelectableReason?: string
+  agentLikelyContent?: string
+  agentReason?: string
+  agentImpact?: string
+  agentConfidenceLabel?: string
   evidenceItems?: EvidenceRenderItem[]
   /** 测试用：执行快照字节数 */
   executionSizeBytes?: number
@@ -69,6 +73,44 @@ export function createScanItemElement(input: ScanItemRenderInput): HTMLLIElement
     reasonEl.className = 'item-desc'
     reasonEl.textContent = input.reason
     info.appendChild(reasonEl)
+  }
+
+  if (input.agentLikelyContent) {
+    const agentBlock = document.createElement('div')
+    agentBlock.className = 'item-agent-insight'
+
+    const title = document.createElement('div')
+    title.className = 'item-agent-title'
+    title.textContent = 'Agent 建议'
+    agentBlock.appendChild(title)
+
+    const likely = document.createElement('div')
+    likely.className = 'item-desc'
+    likely.textContent = `可能内容：${input.agentLikelyContent}`
+    agentBlock.appendChild(likely)
+
+    if (input.agentReason) {
+      const reason = document.createElement('div')
+      reason.className = 'item-desc'
+      reason.textContent = `理由：${input.agentReason}`
+      agentBlock.appendChild(reason)
+    }
+
+    if (input.agentImpact) {
+      const impact = document.createElement('div')
+      impact.className = 'item-desc'
+      impact.textContent = `影响：${input.agentImpact}`
+      agentBlock.appendChild(impact)
+    }
+
+    if (input.agentConfidenceLabel) {
+      const confidence = document.createElement('div')
+      confidence.className = 'item-desc item-agent-confidence'
+      confidence.textContent = `置信度：${input.agentConfidenceLabel} · 来源：Agent`
+      agentBlock.appendChild(confidence)
+    }
+
+    info.appendChild(agentBlock)
   }
 
   if (input.evidenceItems && input.evidenceItems.length > 0) {

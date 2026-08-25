@@ -1,4 +1,10 @@
 import type {
+  ProviderConfigPublic,
+  ProviderTestResult,
+  SaveProviderConfigInput
+} from '../shared/provider-types'
+import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
+import type {
   CleanupRequest,
   CleanupResult,
   RuleWithMeta,
@@ -21,6 +27,12 @@ export interface DiskCleanAPI {
   resetRules: () => Promise<RuleWithMeta[]>
   importRules: () => Promise<{ imported: number; rules: RuleWithMeta[] }>
   openInExplorer: (targetPath: string) => Promise<void>
+  getProviderConfig: () => Promise<ProviderConfigPublic | null>
+  saveProviderConfig: (input: SaveProviderConfigInput) => Promise<ProviderConfigPublic>
+  deleteProviderApiKey: () => Promise<ProviderConfigPublic | null>
+  testProviderConnection: () => Promise<ProviderTestResult>
+  testProviderCapability: () => Promise<ProviderTestResult>
+  analyzeScan: (request: AgentAnalyzeRequest) => Promise<AgentAnalyzeResult>
 }
 
 declare global {

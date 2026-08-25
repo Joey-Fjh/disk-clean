@@ -70,26 +70,17 @@ html {
   overflow: hidden;
 }
 
-/* 低干扰但可发现的滚动区 */
+/* 弹窗等例外场景：内容超出视口时可独立滚动（隐藏滚动条） */
 .scroll-area {
   overflow-y: auto;
-  min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .scroll-area::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.scroll-area::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 4px;
-}
-
-.scroll-area::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
+  width: 0;
+  height: 0;
 }
 
 button:focus-visible,
@@ -125,6 +116,7 @@ input:focus-visible,
   padding: 20px 24px;
   max-width: 480px;
   width: 100%;
+  max-height: min(90vh, 560px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
@@ -164,6 +156,7 @@ input:focus-visible,
   display: flex;
   align-items: center;
   padding: 4px 0 8px;
+  flex-shrink: 0;
 }
 
 .brand {
@@ -191,6 +184,7 @@ input:focus-visible,
   background: var(--tab-bg);
   border-radius: 10px;
   padding: 4px;
+  flex-shrink: 0;
 }
 
 .tab {
@@ -216,30 +210,281 @@ input:focus-visible,
   box-shadow: var(--shadow);
 }
 
-/* ── Tab panels ── */
+/* ── Tab panels：每个主页面唯一纵向滚动容器 ── */
 .tab-panel {
   display: none;
   flex-direction: column;
   gap: 16px;
   flex: 1;
+  min-height: 0;
 }
 
 .tab-panel.active {
   display: flex;
-  min-height: 0;
-  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-#panel-settings.active,
-#panel-clean.active {
+.tab-panel.active::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.settings-page-header {
+  flex: 0 0 auto;
+}
+
+.settings-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.settings-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  flex: 0 0 auto;
   overflow: hidden;
+}
+
+.settings-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-card-header:hover {
+  background: var(--surface-2);
+}
+
+.settings-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.settings-card-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-card-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.settings-card-summary {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.settings-card-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.settings-card.is-expanded .settings-card-chevron {
+  transform: rotate(-135deg);
+}
+
+.settings-card-body {
+  border-top: 1px solid var(--border);
+}
+
+.settings-card-body[hidden] {
+  display: none;
+}
+
+.settings-card-body-inner {
+  padding: 16px 18px 18px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .settings-card-body:not([hidden]) .settings-card-body-inner {
+    animation: settings-card-expand 180ms ease;
+  }
+}
+
+@keyframes settings-card-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sub-tab-bar {
+  display: flex;
+  gap: 4px;
+  background: var(--tab-bg);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+
+.sub-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--tab-text);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.sub-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.sub-tab.active,
+.sub-tab[aria-selected='true'] {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
+  box-shadow: var(--shadow);
+}
+
+.sub-tab-panels {
+  display: block;
+}
+
+.provider-test-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.provider-saved-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.provider-saved-summary > div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.provider-saved-summary dt {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.provider-saved-summary dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.provider-dirty-hint {
+  color: var(--dangerous);
 }
 
 #panel-clean > .panel-header,
 #panel-clean > .summary,
 #panel-clean > .progress,
+#panel-clean > .agent-analysis-banner,
+#panel-clean > .categories,
 #panel-clean > .footer {
+  flex: 0 0 auto;
+}
+
+.agent-analysis-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.agent-analysis-banner[data-phase='running'] {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.agent-analysis-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-analysis-headline {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.agent-analysis-overview,
+.agent-analysis-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.agent-analysis-actions {
+  display: flex;
+  gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.item-agent-insight {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+
+.item-agent-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.item-agent-confidence {
+  color: var(--text-muted);
 }
 
 .panel-header {
@@ -300,12 +545,7 @@ input:focus-visible,
   align-items: stretch;
 }
 
-/* 分类面板内：规则列表区域占据剩余高度并可滚动 */
 .category-panel > .rule-groups {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
   padding: 12px 16px 16px;
 }
 
@@ -520,64 +760,98 @@ input:focus-visible,
   flex-direction: column;
   align-items: stretch;
   gap: 16px;
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
 }
 
-/* ── Rules panel (settings) ── */
-.rules-panel {
+.provider-form {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.provider-field {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
+  gap: 6px;
 }
 
-.rules-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.rules-panel-header h3 {
-  font-size: 0.95rem;
+.provider-label {
+  font-size: 0.78rem;
   font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.rules-panel-header p {
-  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
+.provider-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.provider-input:read-only {
+  opacity: 0.85;
+}
+
+.provider-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-status {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  min-height: 1.2em;
+}
+
+.provider-status[data-tone='success'] {
+  color: var(--safe, #16a34a);
+}
+
+.provider-status[data-tone='error'] {
+  color: var(--dangerous);
+}
+
+@media (max-width: 900px) {
+  .provider-actions .btn {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  .settings-card-header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .settings-card-summary {
+    order: 4;
+    width: 100%;
+    padding-left: 48px;
+  }
+
+  .sub-tab-bar {
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Rules list (settings accordion) ── */
 .rules-toolbar {
   display: flex;
   gap: 8px;
-  flex-shrink: 0;
-}
-
-.rules-filter {
-  min-width: 120px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.85rem;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
 
 .rules-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  display: block;
+  overflow: visible;
 }
 
 .rules-group-title {
@@ -710,11 +984,7 @@ input:focus-visible,
 
 /* ── Categories list ── */
 .categories {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  display: block;
 }
 
 .result-panel {
@@ -724,10 +994,7 @@ input:focus-visible,
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
   box-shadow: var(--shadow);
-  flex: 1;
-  min-height: 0;
 }
 
 .category-tabs {
@@ -736,7 +1003,9 @@ input:focus-visible,
   background: var(--tab-bg);
   padding: 6px;
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .category-tab {
@@ -779,23 +1048,15 @@ input:focus-visible,
 }
 
 .category-panels {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  display: block;
 }
 
 .category-panel {
   display: none;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
 }
 
 .category-panel.active {
-  display: flex;
+  display: block;
 }
 
 .category-panel-header {
@@ -833,9 +1094,8 @@ input:focus-visible,
   accent-color: var(--primary);
 }
 
-/* 列表项由外层 .rule-groups 统一滚动 */
+/* 列表项由 #panel-clean 整体滚动承载 */
 .category-panel .item-list {
-  flex: none;
   overflow: visible;
 }
 
@@ -1083,7 +1343,6 @@ input:focus-visible,
 
 .footer {
   padding-top: 4px;
-  flex-shrink: 0;
 }
 
 #status-text {

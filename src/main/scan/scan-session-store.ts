@@ -48,3 +48,13 @@ export function getScanSession(sessionId: string): ScanSession | null {
 export function clearScanSession(): void {
   activeSession = null
 }
+
+export function updateScanSessionCandidates(sessionId: string, candidates: ScanCandidate[]): boolean {
+  if (!activeSession || activeSession.sessionId !== sessionId) return false
+  if (Date.now() > activeSession.expiresAt) {
+    activeSession = null
+    return false
+  }
+  activeSession.candidates = new Map(candidates.map((candidate) => [candidate.id, candidate]))
+  return true
+}

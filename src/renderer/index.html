@@ -73,6 +73,18 @@
           <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         </section>
 
+        <section class="agent-analysis-banner" id="agent-analysis-banner" hidden>
+          <div class="agent-analysis-copy">
+            <p class="agent-analysis-headline" id="agent-analysis-headline"></p>
+            <p class="agent-analysis-overview" id="agent-analysis-overview"></p>
+            <p class="agent-analysis-meta" id="agent-analysis-meta"></p>
+          </div>
+          <div class="agent-analysis-actions">
+            <button type="button" class="btn btn-secondary" id="agent-analysis-settings-link" hidden>前往设置</button>
+            <button type="button" class="btn btn-secondary" id="agent-analysis-retry" hidden>重试分析</button>
+          </div>
+        </section>
+
         <main class="categories" id="categories">
           <section class="empty-state">
             <div class="empty-icon">
@@ -92,7 +104,7 @@
       </div>
 
       <div id="confirm-overlay" class="confirm-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-        <div class="confirm-dialog">
+        <div class="confirm-dialog scroll-area">
           <h3 id="confirm-title"></h3>
           <p id="confirm-message"></p>
           <ul id="confirm-details" class="confirm-details"></ul>
@@ -105,51 +117,162 @@
 
       <!-- 设置 -->
       <div class="tab-panel" id="panel-settings" role="tabpanel">
-        <div class="panel-header">
+        <div class="panel-header settings-page-header">
           <h2>设置</h2>
         </div>
 
-        <section class="setting-card">
-          <div class="setting-info">
-            <h3>外观主题</h3>
-            <p>选择界面主题，立即生效</p>
-          </div>
-          <div class="segment-control" id="theme-control">
-            <button class="segment" data-theme="light">
-              <svg viewBox="0 0 20 20" width="16" height="16"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.5 3.5l1.4 1.4M15.1 15.1l1.4 1.4M3.5 16.5l1.4-1.4M15.1 4.9l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              浅色
+        <div class="settings-accordion" id="settings-accordion">
+          <section class="settings-card" data-settings-card="theme">
+            <button
+              type="button"
+              class="settings-card-header"
+              id="settings-card-theme-header"
+              aria-expanded="false"
+              aria-controls="settings-card-theme-body"
+            >
+              <span class="settings-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" width="18" height="18"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </span>
+              <span class="settings-card-heading">
+                <span class="settings-card-title">外观主题</span>
+                <span class="settings-card-desc">选择界面主题，立即生效</span>
+              </span>
+              <span class="settings-card-summary" id="theme-card-summary">跟随系统</span>
+              <span class="settings-card-chevron" aria-hidden="true"></span>
             </button>
-            <button class="segment" data-theme="dark">
-              <svg viewBox="0 0 20 20" width="16" height="16"><path d="M15.5 11.5a6 6 0 01-8.3-8.3A6 6 0 1015.5 11.5z" fill="currentColor"/></svg>
-              深色
-            </button>
-            <button class="segment" data-theme="system">
-              <svg viewBox="0 0 20 20" width="16" height="16"><rect x="2" y="4" width="16" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M7 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              跟随系统
-            </button>
-          </div>
-        </section>
+            <div class="settings-card-body" id="settings-card-theme-body" hidden>
+              <div class="settings-card-body-inner">
+                <div class="segment-control" id="theme-control">
+                  <button class="segment" type="button" data-theme="light">
+                    <svg viewBox="0 0 20 20" width="16" height="16"><circle cx="10" cy="10" r="4" fill="currentColor"/><path d="M10 1v2M10 17v2M1 10h2M17 10h2M3.5 3.5l1.4 1.4M15.1 15.1l1.4 1.4M3.5 16.5l1.4-1.4M15.1 4.9l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    浅色
+                  </button>
+                  <button class="segment" type="button" data-theme="dark">
+                    <svg viewBox="0 0 20 20" width="16" height="16"><path d="M15.5 11.5a6 6 0 01-8.3-8.3A6 6 0 1015.5 11.5z" fill="currentColor"/></svg>
+                    深色
+                  </button>
+                  <button class="segment" type="button" data-theme="system">
+                    <svg viewBox="0 0 20 20" width="16" height="16"><rect x="2" y="4" width="16" height="11" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M7 17h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    跟随系统
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <section class="rules-panel">
-          <div class="rules-panel-header">
-            <div>
-              <h3>扫描规则</h3>
-              <p>勾选要扫描的项目，支持导入自定义 JSON</p>
+          <section class="settings-card" data-settings-card="provider">
+            <button
+              type="button"
+              class="settings-card-header"
+              id="settings-card-provider-header"
+              aria-expanded="true"
+              aria-controls="settings-card-provider-body"
+            >
+              <span class="settings-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M4 6h12v8H4z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M7 9h6M7 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </span>
+              <span class="settings-card-heading">
+                <span class="settings-card-title">模型连接</span>
+                <span class="settings-card-desc">配置自备 API Key，用于后续 Agent 分析</span>
+              </span>
+              <span class="settings-card-summary" id="provider-card-summary">未配置</span>
+              <span class="settings-card-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="settings-card-body" id="settings-card-provider-body">
+              <div class="settings-card-body-inner">
+                <div class="sub-tab-bar" role="tablist" aria-label="模型连接">
+                  <button type="button" class="sub-tab active" role="tab" data-subtab="config" data-provider-tab="config" aria-selected="true" aria-controls="provider-tab-config" id="provider-tab-config-btn">连接配置</button>
+                  <button type="button" class="sub-tab" role="tab" data-subtab="test" data-provider-tab="test" aria-selected="false" aria-controls="provider-tab-test" id="provider-tab-test-btn" tabindex="-1">连接测试</button>
+                </div>
+                <div class="sub-tab-panels">
+                  <div role="tabpanel" id="provider-tab-config" data-subtab-panel="config" aria-labelledby="provider-tab-config-btn">
+                    <div class="provider-form">
+                      <label class="provider-field">
+                        <span class="provider-label">Provider</span>
+                        <select id="provider-select" class="provider-input">
+                          <option value="openai">OpenAI</option>
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="custom">Custom</option>
+                        </select>
+                      </label>
+                      <label class="provider-field">
+                        <span class="provider-label">协议</span>
+                        <input id="provider-protocol" class="provider-input" type="text" readonly value="OpenAI-compatible Chat Completions" />
+                      </label>
+                      <label class="provider-field">
+                        <span class="provider-label">Base URL</span>
+                        <input id="provider-base-url" class="provider-input" type="url" placeholder="https://api.openai.com/v1" />
+                      </label>
+                      <label class="provider-field">
+                        <span class="provider-label">模型名称</span>
+                        <input id="provider-model" class="provider-input" type="text" placeholder="gpt-4o-mini" />
+                      </label>
+                      <label class="provider-field">
+                        <span class="provider-label">API Key</span>
+                        <input id="provider-api-key" class="provider-input" type="password" placeholder="输入新 Key 以保存或替换" autocomplete="off" />
+                        <span id="provider-key-hint" class="provider-hint" hidden></span>
+                      </label>
+                      <div class="provider-actions">
+                        <button id="provider-save-btn" class="btn btn-secondary" type="button">保存配置</button>
+                        <button id="provider-delete-key-btn" class="btn btn-secondary" type="button">删除 Key</button>
+                      </div>
+                      <p id="provider-config-status" class="provider-status" aria-live="polite"></p>
+                    </div>
+                  </div>
+                  <div role="tabpanel" id="provider-tab-test" data-subtab-panel="test" aria-labelledby="provider-tab-test-btn" hidden>
+                    <div class="provider-test-panel">
+                      <dl class="provider-saved-summary" id="provider-saved-summary"></dl>
+                      <p id="provider-dirty-hint" class="provider-hint provider-dirty-hint" hidden>配置有未保存修改，请先保存</p>
+                      <div class="provider-actions">
+                        <button id="provider-test-connection-btn" class="btn btn-secondary" type="button">连接测试</button>
+                        <button id="provider-test-capability-btn" class="btn btn-secondary" type="button">模型能力测试</button>
+                      </div>
+                      <p id="provider-test-status" class="provider-status" aria-live="polite"></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="rules-toolbar">
-              <select id="rules-filter" class="rules-filter">
-                <option value="all">全部分类</option>
-                <option value="safe">建议清理规则</option>
-                <option value="recommended">谨慎处理规则</option>
-                <option value="dangerous">仅展示 / 禁止清理规则</option>
-              </select>
-              <button id="import-rules-btn" class="btn btn-secondary">导入</button>
-              <button id="reset-rules-btn" class="btn btn-secondary">恢复默认</button>
+          </section>
+
+          <section class="settings-card" data-settings-card="rules">
+            <button
+              type="button"
+              class="settings-card-header"
+              id="settings-card-rules-header"
+              aria-expanded="false"
+              aria-controls="settings-card-rules-body"
+            >
+              <span class="settings-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" width="18" height="18"><path d="M5 4h10v12H5z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M8 8h4M8 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </span>
+              <span class="settings-card-heading">
+                <span class="settings-card-title">扫描规则</span>
+                <span class="settings-card-desc">勾选要扫描的项目，支持导入自定义 JSON</span>
+              </span>
+              <span class="settings-card-summary" id="rules-card-summary">已启用 0/0</span>
+              <span class="settings-card-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="settings-card-body" id="settings-card-rules-body" hidden>
+              <div class="settings-card-body-inner">
+                <div class="rules-toolbar">
+                  <button id="import-rules-btn" class="btn btn-secondary" type="button">导入</button>
+                  <button id="reset-rules-btn" class="btn btn-secondary" type="button">恢复默认</button>
+                </div>
+                <div class="sub-tab-bar" id="rules-category-tabs" role="tablist" aria-label="规则分类">
+                  <button type="button" class="sub-tab active" role="tab" data-subtab="all" data-rules-filter="all" aria-selected="true" aria-controls="rules-tabpanel" tabindex="0">全部</button>
+                  <button type="button" class="sub-tab" role="tab" data-subtab="safe" data-rules-filter="safe" aria-selected="false" aria-controls="rules-tabpanel" tabindex="-1">建议清理</button>
+                  <button type="button" class="sub-tab" role="tab" data-subtab="recommended" data-rules-filter="recommended" aria-selected="false" aria-controls="rules-tabpanel" tabindex="-1">谨慎处理</button>
+                  <button type="button" class="sub-tab" role="tab" data-subtab="dangerous" data-rules-filter="dangerous" aria-selected="false" aria-controls="rules-tabpanel" tabindex="-1">仅展示</button>
+                </div>
+                <div role="tabpanel" id="rules-tabpanel" data-subtab-panel="all">
+                  <div id="rules-list" class="rules-list"></div>
+                  <p id="rules-status" class="rules-status"></p>
+                </div>
+              </div>
             </div>
-          </div>
-          <div id="rules-list" class="rules-list scroll-area"></div>
-          <p id="rules-status" class="rules-status"></p>
-        </section>
+          </section>
+        </div>
       </div>
 
       <!-- 关于 -->

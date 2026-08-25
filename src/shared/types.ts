@@ -148,6 +148,12 @@ export interface ScanItem {
   evidence: CandidateEvidence[]
   /** Agent / 规则 / 本地策略判断结果。 */
   judgment: CandidateJudgment
+  /** Agent 单轮分析展示字段（不含路径或执行授权）。 */
+  agentInsight?: {
+    likelyContent: string
+    reason: string
+    impact: string
+  }
   /** 用户是否可勾选清理。 */
   selection: CandidateSelection
   /** 建议的受限清理动作（白名单；本阶段不扩展 Cleaner）。 */

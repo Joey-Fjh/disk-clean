@@ -1,4 +1,6 @@
 /// <reference path="../preload/index.d.ts" />
+import './settings-page'
+import './provider-settings'
 import type { Category, RuleWithMeta, ScanError, ScanItem, ScanResult } from '../shared/types'
 import {
   CANDIDATE_TAB_LABELS,
@@ -12,14 +14,30 @@ import { showConfirmDialog } from './confirm-dialog'
 import { upsertScanItems } from '../shared/scan-item-accumulator'
 import { normalizeCandidate } from '../shared/candidate-model'
 import { RuleGroupExpansionState } from './rule-group-state'
+import { ResultCategoryViewState } from './result-category-state'
+import { CandidateSelectionViewState } from './candidate-selection-state'
 import { buildScanItemRenderInput } from './candidate-render'
 import { createScanItemElement } from './safe-render'
 
-type ThemeMode = 'light' | 'dark' | 'system'
+import {
+  formatRulesSummary,
+  formatThemeSummary,
+  filterRulesByCategory,
+  type RulesCategoryFilter,
+  type ThemeMode
+} from './settings-summaries'
+import { preservePanelScrollTop, switchMainTabPanel } from './panel-scroll'
+import {
+  onScanCancelledNoAnalysis,
+  resetAgentAnalysisUi,
+  runAgentAnalysisForSession,
+  shouldAutoAnalyzeAfterScan,
+  wireAgentAnalysisUi
+} from './agent-analysis'
 
-// ── Tab navigation ──
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab')
 const panels = document.querySelectorAll<HTMLElement>('.tab-panel')
+const panelClean = document.getElementById('panel-clean') as HTMLElement
 
 tabs.forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -28,15 +46,27 @@ tabs.forEach((tab) => {
       t.classList.toggle('active', t.dataset.tab === target)
       t.setAttribute('aria-selected', String(t.dataset.tab === target))
     })
-    panels.forEach((p) => {
-      p.classList.toggle('active', p.id === `panel-${target}`)
-    })
+    switchMainTabPanel(panels, `panel-${target}`)
   })
+})
+
+wireAgentAnalysisUi({
+  onItemsUpdated: (items) => {
+    if (!scanResult) return
+    scanResult = { ...scanResult, items }
+    preservePanelScrollTop(panelClean, () => renderCategories(items))
+    updateSelectedSummary()
+  },
+  openSettings: () => {
+    const settingsTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')
+    settingsTab?.click()
+  }
 })
 
 // ── Theme ──
 const themeControl = document.getElementById('theme-control')!
 const themeButtons = themeControl.querySelectorAll<HTMLButtonElement>('.segment')
+const themeCardSummary = document.getElementById('theme-card-summary') as HTMLSpanElement
 
 function resolveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
@@ -51,6 +81,7 @@ function applyTheme(mode: ThemeMode): void {
   themeButtons.forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.theme === mode)
   })
+  themeCardSummary.textContent = formatThemeSummary(mode)
 }
 
 const savedTheme = (localStorage.getItem('theme') as ThemeMode) || 'system'
@@ -85,10 +116,11 @@ const totalSizeLabelEl = document.getElementById('total-size-label') as HTMLElem
 const statusText = document.getElementById('status-text') as HTMLElement
 
 let scanResult: ScanResult | null = null
-let selectedIds = new Set<string>()
 let scanning = false
 let renderTimer: number | null = null
 const ruleGroupExpansion = new RuleGroupExpansionState()
+const resultCategoryView = new ResultCategoryViewState()
+const candidateSelection = new CandidateSelectionViewState()
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -143,7 +175,7 @@ function updateLiveSummary(items: ScanItem[]): void {
 function scheduleRender(items: ScanItem[]): void {
   if (renderTimer !== null) window.clearTimeout(renderTimer)
   renderTimer = window.setTimeout(() => {
-    renderCategories(items)
+    preservePanelScrollTop(panelClean, () => renderCategories(items))
     renderTimer = null
   }, 120)
 }
@@ -165,7 +197,7 @@ function finishScan(result: ScanResult): void {
   scanResult = result
   const { items, errors, cancelled, drive } = result
 
-  selectedIds = new Set(items.filter((i) => getDefaultChecked(i)).map((i) => i.id))
+  candidateSelection.reconcileFinalItems(items, getDefaultChecked)
 
   progress.hidden = true
   updateLiveSummary(items)
@@ -173,7 +205,7 @@ function finishScan(result: ScanResult): void {
     window.clearTimeout(renderTimer)
     renderTimer = null
   }
-  renderCategories(items)
+  preservePanelScrollTop(panelClean, () => renderCategories(items))
   updateSelectedSummary()
 
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
@@ -183,6 +215,23 @@ function finishScan(result: ScanResult): void {
     statusText.textContent = `${driveLabel} · 扫描完成，${errors.length} 个路径因权限等原因跳过`
   } else {
     statusText.textContent = `${driveLabel} · 扫描完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
+  }
+
+  if (shouldAutoAnalyzeAfterScan(cancelled === true)) {
+    void runAgentAnalysisForSession(result.sessionId, {
+      onItemsUpdated: (items) => {
+        if (!scanResult || scanResult.sessionId !== result.sessionId) return
+        scanResult = { ...scanResult, items }
+        candidateSelection.reconcileAfterAgentUpdate(items, isSelectable, getDefaultChecked)
+        preservePanelScrollTop(panelClean, () => renderCategories(items))
+        updateSelectedSummary()
+      },
+      openSettings: () => {
+        document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')?.click()
+      }
+    })
+  } else {
+    onScanCancelledNoAnalysis(result.sessionId)
   }
 }
 
@@ -204,7 +253,7 @@ function updateSelectedSummary(): void {
     cleanBtn.disabled = true
     return
   }
-  const selected = scanResult.items.filter((i) => selectedIds.has(i.id))
+  const selected = scanResult.items.filter((i) => candidateSelection.isSelected(i.id) && isSelectable(i))
   const size = selected.reduce((s, i) => s + i.size, 0)
   selectedSizeEl.textContent = formatSize(size)
   cleanBtn.disabled = scanning || selected.length === 0
@@ -228,7 +277,7 @@ function renderCategories(items: ScanItem[]): void {
     order.map((cat) => [cat, items.filter((i) => i.category === cat)])
   ) as Record<Category, ScanItem[]>
 
-  const firstWithItems = order.find((cat) => grouped[cat].length > 0) ?? 'safe'
+  const activeCategory = resultCategoryView.resolveActiveCategory(items)
 
   const wrapper = document.createElement('div')
   wrapper.className = 'result-panel'
@@ -246,7 +295,7 @@ function renderCategories(items: ScanItem[]): void {
 
   function updateSelectAllState(selectAllCb: HTMLInputElement, catItems: ScanItem[]): void {
     const deletable = getDeletableItems(catItems)
-    const selectedCount = deletable.filter((item) => selectedIds.has(item.id)).length
+    const selectedCount = deletable.filter((item) => candidateSelection.isSelected(item.id)).length
     selectAllCb.checked = selectedCount > 0 && selectedCount === deletable.length
     selectAllCb.indeterminate = selectedCount > 0 && selectedCount < deletable.length
   }
@@ -257,10 +306,8 @@ function renderCategories(items: ScanItem[]): void {
     selected: boolean,
     selectAllCb: HTMLInputElement
   ): void {
-    for (const item of getDeletableItems(catItems)) {
-      if (selected) selectedIds.add(item.id)
-      else selectedIds.delete(item.id)
-    }
+    const ids = getDeletableItems(catItems).map((item) => item.id)
+    candidateSelection.setMany(ids, selected)
     list.querySelectorAll<HTMLInputElement>('input[type=checkbox]:not(:disabled)').forEach((cb) => {
       cb.checked = selected
     })
@@ -333,11 +380,12 @@ function renderCategories(items: ScanItem[]): void {
 
         const checkbox = li.querySelector('input') as HTMLInputElement
         checkbox.dataset.id = item.id
-        checkbox.checked = selectedIds.has(item.id)
+        checkbox.checked =
+          normalized.selection.selectable && candidateSelection.isSelected(item.id)
         checkbox.disabled = !normalized.selection.selectable
         checkbox.addEventListener('change', () => {
-          if (checkbox.checked) selectedIds.add(item.id)
-          else selectedIds.delete(item.id)
+          if (checkbox.checked) candidateSelection.select(item.id)
+          else candidateSelection.deselect(item.id)
           updateSelectAllState(selectAllCb, catItems)
           updateSelectedSummary()
         })
@@ -381,19 +429,22 @@ function renderCategories(items: ScanItem[]): void {
       category === 'safe' ? 'badge-safe' : category === 'recommended' ? 'badge-recommended' : 'badge-dangerous'
 
     const tab = document.createElement('button')
-    tab.className = `category-tab${category === firstWithItems ? ' active' : ''}`
+    tab.className = `category-tab${category === activeCategory ? ' active' : ''}`
     tab.dataset.category = category
     tab.setAttribute('role', 'tab')
-    tab.setAttribute('aria-selected', String(category === firstWithItems))
+    tab.setAttribute('aria-selected', String(category === activeCategory))
     tab.innerHTML = `
       <span class="category-tab-label">${CANDIDATE_TAB_LABELS[category]}</span>
       <span class="category-tab-meta">${catItems.length} 项 · ${formatSize(catSize)}</span>
     `
-    tab.addEventListener('click', () => switchCategory(category))
+    tab.addEventListener('click', () => {
+      resultCategoryView.select(category)
+      switchCategory(category)
+    })
     tabBar.appendChild(tab)
 
     const panel = document.createElement('section')
-    panel.className = `category-panel${category === firstWithItems ? ' active' : ''}`
+    panel.className = `category-panel${category === activeCategory ? ' active' : ''}`
     panel.id = `cat-panel-${category}`
     panel.setAttribute('role', 'tabpanel')
 
@@ -423,7 +474,6 @@ function renderCategories(items: ScanItem[]): void {
         selectAllLabel.append(selectAllCb, document.createTextNode('全选'))
 
         const list = renderItemList(category, catItems, selectAllCb)
-        list.classList.add('scroll-area')
         updateSelectAllState(selectAllCb, catItems)
 
         selectAllCb.addEventListener('change', () => {
@@ -434,7 +484,6 @@ function renderCategories(items: ScanItem[]): void {
         panel.appendChild(list)
       } else {
         const list = renderItemList(category, catItems, document.createElement('input'))
-        list.classList.add('scroll-area')
         panel.appendChild(list)
       }
     }
@@ -450,8 +499,10 @@ function renderCategories(items: ScanItem[]): void {
 async function startScan(): Promise<void> {
   const drive = driveSelect.value || 'all'
   setScanning(true)
-  selectedIds = new Set()
+  candidateSelection.clear()
+  resetAgentAnalysisUi()
   ruleGroupExpansion.clear()
+  resultCategoryView.clear()
   scanResult = null
   progress.hidden = false
   summary.hidden = false
@@ -501,7 +552,7 @@ async function handleScanButtonClick(): Promise<void> {
 async function cleanSelected(): Promise<void> {
   if (!scanResult?.sessionId) return
 
-  const selected = scanResult.items.filter((i) => selectedIds.has(i.id) && isSelectable(i))
+  const selected = scanResult.items.filter((i) => candidateSelection.isSelected(i.id) && isSelectable(i))
   if (selected.length === 0) return
 
   const totalSize = selected.reduce((s, i) => s + i.size, 0)
@@ -578,17 +629,34 @@ void loadDriveOptions()
 
 // ── Rules settings ──
 const rulesList = document.getElementById('rules-list') as HTMLElement
-const rulesFilter = document.getElementById('rules-filter') as HTMLSelectElement
 const rulesStatus = document.getElementById('rules-status') as HTMLElement
+const rulesCardSummary = document.getElementById('rules-card-summary') as HTMLSpanElement
+const rulesCategoryTabs = document.getElementById('rules-category-tabs')!
 const importRulesBtn = document.getElementById('import-rules-btn') as HTMLButtonElement
 const resetRulesBtn = document.getElementById('reset-rules-btn') as HTMLButtonElement
 
 let allRules: RuleWithMeta[] = []
+let rulesCategoryFilter: RulesCategoryFilter = 'all'
+
+function updateRulesCardSummary(): void {
+  rulesCardSummary.textContent = formatRulesSummary(allRules)
+}
+
+function setRulesCategoryFilter(filter: RulesCategoryFilter): void {
+  rulesCategoryFilter = filter
+  rulesCategoryTabs.querySelectorAll<HTMLButtonElement>('[data-rules-filter]').forEach((tab) => {
+    const selected = tab.dataset.rulesFilter === filter
+    tab.classList.toggle('active', selected)
+    tab.setAttribute('aria-selected', String(selected))
+    tab.tabIndex = selected ? 0 : -1
+  })
+  renderRulesList()
+}
 
 function renderRulesList(): void {
-  const filter = rulesFilter.value
+  const filter = rulesCategoryFilter
   const order = CATEGORY_ORDER
-  const filtered = allRules.filter((rule) => filter === 'all' || rule.category === filter)
+  const filtered = filterRulesByCategory(allRules, filter)
 
   rulesList.innerHTML = ''
   if (filtered.length === 0) {
@@ -667,6 +735,7 @@ function renderRulesList(): void {
 
   const enabled = allRules.filter((r) => r.enabled).length
   rulesStatus.textContent = `共 ${allRules.length} 条规则，已启用 ${enabled} 条`
+  updateRulesCardSummary()
 }
 
 async function loadRulesSettings(): Promise<void> {
@@ -674,7 +743,12 @@ async function loadRulesSettings(): Promise<void> {
   renderRulesList()
 }
 
-rulesFilter.addEventListener('change', renderRulesList)
+rulesCategoryTabs.querySelectorAll<HTMLButtonElement>('[data-rules-filter]').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const filter = tab.dataset.rulesFilter as RulesCategoryFilter
+    setRulesCategoryFilter(filter)
+  })
+})
 
 importRulesBtn.addEventListener('click', async () => {
   const result = await window.diskClean.importRules()

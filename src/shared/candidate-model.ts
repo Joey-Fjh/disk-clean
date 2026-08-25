@@ -243,6 +243,7 @@ export function normalizeCandidate(item: ScanItem): ScanItem {
     discoverySources,
     evidence,
     judgment,
+    agentInsight: item.agentInsight,
     selection,
     suggestedAction,
     occupancyObservation

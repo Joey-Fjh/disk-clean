@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  ProviderConfigPublic,
+  ProviderErrorCode,
+  ProviderTestResult,
+  SaveProviderConfigInput
+} from '../shared/provider-types'
+import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
+import type { AgentIpcResult } from '../shared/agent-ipc'
+import type { ProviderIpcResult } from '../shared/provider-ipc'
+import type {
   CleanupRequest,
   CleanupResult,
   RuleWithMeta,
@@ -8,6 +17,48 @@ import type {
   ScanRequest,
   ScanResult
 } from '../shared/types'
+
+export class ProviderInvokeError extends Error {
+  readonly code: ProviderErrorCode
+
+  constructor(code: ProviderErrorCode, message: string) {
+    super(message)
+    this.name = 'ProviderInvokeError'
+    this.code = code
+  }
+}
+
+export class AgentInvokeError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'AgentInvokeError'
+    this.code = code
+  }
+}
+
+async function invokeAgentIpc<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = (await ipcRenderer.invoke(channel, ...args)) as AgentIpcResult<T>
+  if (!result || typeof result !== 'object' || !('ok' in result)) {
+    throw new AgentInvokeError('INVALID_INPUT', 'Agent IPC 响应无效')
+  }
+  if (!result.ok) {
+    throw new AgentInvokeError(result.code, result.message)
+  }
+  return result.value
+}
+
+async function invokeProviderIpc<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = (await ipcRenderer.invoke(channel, ...args)) as ProviderIpcResult<T>
+  if (!result || typeof result !== 'object' || !('ok' in result)) {
+    throw new ProviderInvokeError('INVALID_INPUT', 'Provider IPC 响应无效')
+  }
+  if (!result.ok) {
+    throw new ProviderInvokeError(result.code, result.message)
+  }
+  return result.value
+}
 
 contextBridge.exposeInMainWorld('diskClean', {
   listDrives: (): Promise<string[]> => ipcRenderer.invoke('system:listDrives'),
@@ -33,5 +84,17 @@ contextBridge.exposeInMainWorld('diskClean', {
   resetRules: (): Promise<RuleWithMeta[]> => ipcRenderer.invoke('rules:reset'),
   importRules: (): Promise<{ imported: number; rules: RuleWithMeta[] }> =>
     ipcRenderer.invoke('rules:import'),
-  openInExplorer: (targetPath: string): Promise<void> => ipcRenderer.invoke('path:open', targetPath)
+  openInExplorer: (targetPath: string): Promise<void> => ipcRenderer.invoke('path:open', targetPath),
+  getProviderConfig: (): Promise<ProviderConfigPublic | null> =>
+    invokeProviderIpc<ProviderConfigPublic | null>('provider:getConfig'),
+  saveProviderConfig: (input: SaveProviderConfigInput): Promise<ProviderConfigPublic> =>
+    invokeProviderIpc<ProviderConfigPublic>('provider:saveConfig', input),
+  deleteProviderApiKey: (): Promise<ProviderConfigPublic | null> =>
+    invokeProviderIpc<ProviderConfigPublic | null>('provider:deleteApiKey'),
+  testProviderConnection: (): Promise<ProviderTestResult> =>
+    invokeProviderIpc<ProviderTestResult>('provider:testConnection'),
+  testProviderCapability: (): Promise<ProviderTestResult> =>
+    invokeProviderIpc<ProviderTestResult>('provider:testCapability'),
+  analyzeScan: (request: AgentAnalyzeRequest): Promise<AgentAnalyzeResult> =>
+    invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request)
 })

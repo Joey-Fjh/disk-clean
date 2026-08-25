@@ -5,6 +5,7 @@ import { runDiskAnalysis } from './disk-analyzer'
 import { upsertScanItems } from '../../shared/scan-item-accumulator'
 import { beginScanSession, endScanSession, isScanCancelled } from './scan-controller'
 import { createScanSession } from '../scan/scan-session-store'
+import { markAgentScanStarting, notifyNewScanSession } from '../agent/agent-service'
 import { getAllRulesWithMeta } from '../rules'
 
 type ProgressCallback = (progress: ScanProgress) => void
@@ -95,6 +96,7 @@ export async function runScan(
   onItems?: ItemsCallback
 ): Promise<ScanResult> {
   beginScanSession()
+  markAgentScanStarting()
   const drive = request.drive ?? 'all'
   const mode = request.mode ?? 'combined'
 
@@ -105,6 +107,7 @@ export async function runScan(
         : await runLegacyScan(mode, drive, onProgress, onItems)
 
     const session = createScanSession(drive, mode, getRulesVersion(), result.items)
+    notifyNewScanSession(session.sessionId)
 
     return {
       sessionId: session.sessionId,

@@ -100,6 +100,13 @@ export interface ScanItemRenderBuildInput {
   contentTypeLabel: string
 }
 
+function confidenceLabel(confidence: ScanItem['judgment']['confidence']): string | undefined {
+  if (confidence === 'high') return '高'
+  if (confidence === 'medium') return '中'
+  if (confidence === 'low') return '低'
+  return undefined
+}
+
 export function buildScanItemRenderInput(
   item: ScanItem,
   labels: ScanItemRenderBuildInput
@@ -121,6 +128,11 @@ export function buildScanItemRenderInput(
     notSelectableReason: normalized.selection.selectable
       ? undefined
       : normalized.selection.notSelectableReason,
+    agentLikelyContent: normalized.agentInsight?.likelyContent,
+    agentReason: normalized.agentInsight?.reason,
+    agentImpact: normalized.agentInsight?.impact,
+    agentConfidenceLabel:
+      normalized.judgment.source === 'agent' ? confidenceLabel(normalized.judgment.confidence) : undefined,
     evidenceItems: evidenceItems.length > 0 ? evidenceItems : undefined,
     executionSizeBytes: item.size,
     occupancySizeBytes: normalized.occupancyObservation?.size

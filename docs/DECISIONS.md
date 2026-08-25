@@ -2,7 +2,56 @@
 
 记录讨论结论，方便换电脑后继续。
 
-最后更新：2026-08-24
+最后更新：2026-08-25
+
+---
+
+## 分阶段协作流程（2026-08-25）
+
+1. 产品审核当前阶段实现。
+2. 审核通过后，产品提供下一阶段 Prompt。
+3. 编码 Agent **只实现该阶段**，不跨阶段。
+4. 完成后交付代码与执行报告，产品复审；通过后再标记路线图完成并进入下一阶段。
+
+---
+
+## 阶段 2 迁移期双轨说明（2026-08-25）
+
+**产品直觉（正确）**：终态是「扫盘 → LLM 判断」，JSON 规则降为证据层；规则扫描不应作为永久主流程。
+
+**当前实现（迁移桥）**：在 Agent 未接入前，保留 `RuleScanner` 产出可清理项，否则全部 pending、无法清理。空间发现项为 `pending`；规则命中项为 `suggested`/`caution` 且可走现有 Validator。
+
+**何时改变**：阶段 4 Agent 写 judgment；阶段 6 Validator 迁移为会话 Candidate 授权。届时规则扫描的主流程地位逐步让位于「证据补充」。
+
+阶段 2 已于 2026-08-25 验收通过。
+
+---
+
+## 阶段 3：模型 Provider 与安全凭证（2026-08-25，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 凭证存储 | Electron `safeStorage` + **keyOrigin 绑定**；跨 Origin 变更须重输 Key（`KEY_REENTRY_REQUIRED`） |
+| safeStorage 不可用 | 拒绝保存 Key，向用户说明；**不降级**为明文 |
+| Renderer 可见信息 | 仅 `hasKey`、`keyLastFour`；无解密 IPC |
+| 第一版协议 | OpenAI-compatible Chat Completions；预设 OpenAI / DeepSeek / Custom |
+| 连接测试 | 最小 Chat 请求（`ping`），非 `/models` |
+| 能力测试 | 固定 JSON 提示，本地解析；不发送扫描/Candidate 数据 |
+| 未做 | 多轮调查工具、扫描中增量调用模型、Validator 授权迁移（阶段 5+ / 6） |
+
+### 阶段 4 单轮智能分析（2026-08-25，进行中，待最终 UI 验收）
+
+代码与安全复审已通过；无 Key 降级、鉴权失败、重试分析 UI 已验收。成功分析 UI 待本地 Mock Provider 验证。
+
+| 项 | 说明 |
+|----|------|
+| 单轮分析 | 扫描完成后主进程发起一次模型分析；Renderer 仅传 `sessionId` |
+| 脱敏 Prompt | 路径/用户名脱敏；candidateRef 映射；128 KiB / 200 项上限 |
+| 结构化输出 | schema v1 JSON 校验；verdict → judgment 映射 |
+| 安全约束 | Analyzer-only 不可因 Agent 变为可清理；不扩大规则权限 |
+| UI | 分析横幅、Agent 建议展示、失败重试；保持滚动/分类/勾选状态 |
+
+详见 [PHASE-4-REPORT.md](./PHASE-4-REPORT.md)。**阶段 5** 才包含多轮只读调查与工具调用；**阶段 6** 才迁移 Validator 会话授权。
 
 ---
 

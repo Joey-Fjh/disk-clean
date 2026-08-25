@@ -16,6 +16,9 @@ import {
 import type { RuleConfig, ScanProgress, ScanRequest } from '../shared/types'
 import { MAX_CANDIDATE_ID_LENGTH, MAX_CLEANUP_CANDIDATE_IDS } from '../shared/cleanup-limits'
 import { listAvailableDrives, getSystemDrive } from '../shared/system-paths'
+import { registerProviderIpc } from './provider/provider-ipc'
+import { registerAgentIpc } from './agent/agent-ipc'
+import { hardenMainWindow, setMainWindow } from './window-security'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -102,6 +105,9 @@ async function createWindow(): Promise<void> {
     mainWindow?.show()
   })
 
+  setMainWindow(mainWindow)
+  hardenMainWindow(mainWindow, join(__dirname, '../renderer/index.html'))
+
   try {
     await loadRenderer(mainWindow)
   } catch (err) {
@@ -114,6 +120,8 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(() => {
   app.setName('Disk Clean')
+  registerProviderIpc()
+  registerAgentIpc()
   void createWindow()
 
   app.on('activate', () => {
