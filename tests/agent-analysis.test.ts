@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getCurrentAgentAnalysis,
+  onAgentAnalysisFailed,
   onScanCancelledNoAnalysis,
   resetAgentAnalysisUi,
   runAgentAnalysisForSession,
@@ -51,6 +52,13 @@ describe('agent analysis renderer state', () => {
     const analysis = getCurrentAgentAnalysis()
     expect(analysis?.status).toBe('cancelled')
     expect(analysis?.overview).toContain('未运行智能分析')
+  })
+
+  it('mentions local rule suggestions when agent analysis fails', () => {
+    onAgentAnalysisFailed('session-a', '模型鉴权失败')
+    expect(document.getElementById('agent-analysis-overview')?.textContent).toContain(
+      '本地规则建议仍可使用'
+    )
   })
 
   it('does not let stale request failure overwrite newer scan UI', async () => {

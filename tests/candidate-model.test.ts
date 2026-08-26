@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ANALYZER_ONLY_AGENT_ADVICE_REASON,
   getJudgmentStatusLabel,
   isCandidateEquivalent,
   mapRuleScanItem,
@@ -8,6 +9,9 @@ import {
   normalizeCandidate,
   occupancyObservationFromSpaceItem
 } from '../src/shared/candidate-model'
+import { formatBytes } from '../src/shared/format-bytes'
+import { buildScanItemRenderInput } from '../src/renderer/candidate-render'
+import { applyAgentRecommendation } from '../src/main/agent/agent-candidate-mapper'
 import { accumulateScanItemBatches, upsertScanItems } from '../src/shared/scan-item-accumulator'
 import { buildCleanupPlan } from '../src/main/cleanup/plan-builder'
 import type { ScanItem } from '../src/shared/types'
@@ -281,5 +285,51 @@ describe('candidate model', () => {
     const obs = occupancyObservationFromSpaceItem(analyzer)
     expect(obs.size).toBe(42)
     expect(obs.source).toBe('space-scan')
+  })
+
+  it('uses consistent units between candidate size and space evidence', () => {
+    const size = 30 * 1024 * 1024
+    const analyzer = legacyAnalyzer({
+      path: 'C:\\$Recycle.Bin',
+      size,
+      impact: '仅展示占用，不判断是否为垃圾'
+    })
+    const spaceEvidence = analyzer.evidence.find((entry) => entry.source === 'space-scan')
+    const expected = formatBytes(size)
+
+    expect(spaceEvidence?.summary).toContain(expected)
+    expect(spaceEvidence?.summary).not.toContain('GB')
+
+    const renderInput = buildScanItemRenderInput(analyzer, { contentTypeLabel: '大型目录' })
+    expect(renderInput.sizeLabel).toBe(expected)
+  })
+
+  it('shows analyzer-only agent advice copy for all agent verdicts without cleanup authorization', () => {
+    const analyzer = legacyAnalyzer({
+      path: 'C:\\$Recycle.Bin',
+      impact: '仅展示占用，不判断是否为垃圾'
+    })
+    const recommendation = {
+      candidateRef: 'candidate-1',
+      verdict: 'clean' as const,
+      likelyContent: '回收站内容',
+      reason: '可清理',
+      impact: '释放空间',
+      confidence: 'high' as const,
+      basis: ['mock']
+    }
+
+    for (const verdict of ['clean', 'confirm', 'keep', 'uncertain'] as const) {
+      const after = normalizeCandidate(
+        applyAgentRecommendation(analyzer, { ...recommendation, verdict })
+      )
+      expect(after.judgment.source).toBe('agent')
+      expect(after.selection.selectable).toBe(false)
+      expect(after.deletable).toBe(false)
+      expect(after.suggestedAction).toBe('none')
+      expect(after.selection.notSelectableReason).toBe(ANALYZER_ONLY_AGENT_ADVICE_REASON)
+      expect(after.selection.notSelectableReason).not.toContain('尚未启用智能判断')
+      expect(after.selection.notSelectableReason).not.toContain('仅展示占用')
+    }
   })
 })

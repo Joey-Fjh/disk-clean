@@ -11,9 +11,13 @@ import type {
   SuggestedAction
 } from './types'
 import { normalizeScanPath } from './scan-path'
+import { formatBytes } from './format-bytes'
 
 const PENDING_REASON =
   '当前版本尚未启用智能判断，仅展示空间占用'
+
+export const ANALYZER_ONLY_AGENT_ADVICE_REASON =
+  'Agent 已提供分析建议；当前条目仅供参考，尚未获得清理授权。'
 
 const INCOMPLETE_SNAPSHOT_REASON =
   '扫描快照不完整，请重新扫描或进一步调查'
@@ -51,16 +55,9 @@ export function occupancyObservationFromSpaceItem(item: ScanItem): OccupancyObse
   }
 }
 
-function formatBytesForEvidence(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(unit > 0 ? 1 : 0)} ${units[unit]}`
+function isAnalyzerOnlyItem(item: ScanItem): boolean {
+  const sources = item.discoverySources ?? []
+  return sources.includes('space-scan') && !sources.includes('rule')
 }
 
 function buildSpaceEvidence(item: ScanItem): CandidateEvidence {
@@ -69,7 +66,7 @@ function buildSpaceEvidence(item: ScanItem): CandidateEvidence {
   const partial = obs?.sizePartial ?? item.sizePartial
   const sizeNote =
     size !== undefined
-      ? `空间占用估算：${formatBytesForEvidence(size)}${partial ? '（深度受限可能不完整）' : ''}`
+      ? `空间占用估算：${formatBytes(size)}${partial ? '（深度受限可能不完整）' : ''}`
       : item.sizePartial
         ? '逻辑大小估算（可能不完整）'
         : '逻辑大小估算'
@@ -146,6 +143,9 @@ function derivePendingJudgment(item: ScanItem): CandidateJudgment {
 export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): CandidateSelection {
   if (judgment.status === 'pending') {
     return { selectable: false, notSelectableReason: PENDING_REASON }
+  }
+  if (isAnalyzerOnlyItem(item) && judgment.source === 'agent') {
+    return { selectable: false, notSelectableReason: ANALYZER_ONLY_AGENT_ADVICE_REASON }
   }
   if (judgment.status === 'uncertain') {
     return { selectable: false, notSelectableReason: '信息不足，无法确定是否可清理' }

@@ -264,7 +264,7 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
   'user-data': '用户数据',
   'system-protected': '系统受保护数据',
   developer: '开发工具',
-  agent: 'AI / Agent',
+  agent: 'AI 工具缓存',
   game: '游戏',
   chat: '聊天软件'
 }

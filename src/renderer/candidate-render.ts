@@ -1,4 +1,5 @@
 import { getJudgmentStatusLabel, normalizeCandidate } from '../shared/candidate-model'
+import { formatBytes } from '../shared/format-bytes'
 import type { OccupancyObservation, ScanItem } from '../shared/types'
 import type { EvidenceRenderItem, ScanItemRenderInput } from './safe-render'
 
@@ -10,11 +11,7 @@ export const EVIDENCE_SOURCE_LABELS = {
 } as const
 
 function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const value = bytes / Math.pow(1024, i)
-  return `${value.toFixed(i > 0 ? 1 : 0)} ${units[i]}`
+  return formatBytes(bytes)
 }
 
 function judgmentBadgeClass(status: ScanItem['judgment']['status']): string {

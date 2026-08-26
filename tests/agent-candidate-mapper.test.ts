@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeCandidate } from '../src/shared/candidate-model'
 import {
   applyAgentRecommendation,
   applyAgentRecommendations,
@@ -7,6 +6,7 @@ import {
   preserveLocalExecutionFacts,
   verdictToJudgmentStatus
 } from '../src/main/agent/agent-candidate-mapper'
+import { ANALYZER_ONLY_AGENT_ADVICE_REASON, normalizeCandidate } from '../src/shared/candidate-model'
 import type { ScanItem } from '../src/shared/types'
 
 function baseItem(overrides: Partial<ScanItem> = {}): ScanItem {
@@ -66,12 +66,38 @@ describe('agent candidate mapper', () => {
       id: 'space-1',
       source: 'analyzer',
       deletable: false,
+      impact: '仅展示占用，不判断是否为垃圾',
       discoverySources: ['space-scan'],
       judgment: { status: 'pending', source: 'none', confidence: 'unknown', basis: [] }
     })
     const after = applyAgentRecommendation(analyzer, recommendation)
     expect(agentCannotExpandAnalyzerOnly(after)).toBe(true)
-    expect(normalizeCandidate(after).selection.selectable).toBe(false)
+    const normalized = normalizeCandidate(after)
+    expect(normalized.selection.selectable).toBe(false)
+    expect(normalized.selection.notSelectableReason).toBe(ANALYZER_ONLY_AGENT_ADVICE_REASON)
+    expect(normalized.deletable).toBe(false)
+    expect(normalized.suggestedAction).toBe('none')
+  })
+
+  it('uses analyzer-only agent advice copy for confirm, keep, and uncertain verdicts', () => {
+    const analyzer = baseItem({
+      id: 'space-1',
+      source: 'analyzer',
+      deletable: false,
+      impact: '仅展示占用，不判断是否为垃圾',
+      discoverySources: ['space-scan'],
+      judgment: { status: 'pending', source: 'none', confidence: 'unknown', basis: [] }
+    })
+
+    for (const verdict of ['confirm', 'keep', 'uncertain'] as const) {
+      const after = normalizeCandidate(
+        applyAgentRecommendation(analyzer, { ...recommendation, verdict })
+      )
+      expect(after.selection.selectable).toBe(false)
+      expect(after.deletable).toBe(false)
+      expect(after.suggestedAction).toBe('none')
+      expect(after.selection.notSelectableReason).toBe(ANALYZER_ONLY_AGENT_ADVICE_REASON)
+    }
   })
 
   it('keeps uncertain and keep verdicts conservative', () => {

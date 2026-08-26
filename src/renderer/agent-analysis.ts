@@ -56,7 +56,7 @@ function renderBanner(): void {
         : analysis.status === 'cancelled'
           ? (analysis.overview ?? '未运行智能分析')
           : analysis.status === 'failed'
-            ? analysis.errorMessage ?? '请稍后重试分析。'
+            ? `${analysis.errorMessage ?? '请稍后重试分析。'} 本地规则建议仍可使用。`
             : analysis.overview ?? 'Agent 自动分析扫描摘要并提供建议，由你确认后安全执行。'
 
   const metaParts: string[] = []
