@@ -1,4 +1,5 @@
 import { getJudgmentStatusLabel, normalizeCandidate } from '../shared/candidate-model'
+import { getJudgmentOriginLabel } from '../shared/candidate-judgment'
 import { formatBytes } from '../shared/format-bytes'
 import type { OccupancyObservation, ScanItem } from '../shared/types'
 import type { EvidenceRenderItem, ScanItemRenderInput } from './safe-render'
@@ -15,6 +16,7 @@ function formatSize(bytes: number): string {
 }
 
 function judgmentBadgeClass(status: ScanItem['judgment']['status']): string {
+  if (status === 'identifying') return 'judgment-identifying'
   if (status === 'suggested') return 'judgment-suggested'
   if (status === 'caution') return 'judgment-caution'
   if (status === 'keep') return 'judgment-keep'
@@ -36,6 +38,7 @@ function buildOccupancySummary(obs: OccupancyObservation): string {
 
 export function buildEvidenceItems(item: ScanItem, normalized: ScanItem): EvidenceRenderItem[] {
   const hasRule = normalized.discoverySources.includes('rule')
+  const isIdentifying = normalized.judgment.status === 'identifying'
   const isPending = normalized.judgment.status === 'pending'
   const items: EvidenceRenderItem[] = []
 
@@ -45,7 +48,7 @@ export function buildEvidenceItems(item: ScanItem, normalized: ScanItem): Eviden
       sourceLabel: EVIDENCE_SOURCE_LABELS['space-scan'],
       summary: `空间观察：${buildOccupancySummary(normalized.occupancyObservation)}`
     })
-  } else if (isPending && normalized.discoverySources.includes('space-scan')) {
+  } else if ((isPending || isIdentifying) && normalized.discoverySources.includes('space-scan')) {
     const obs: OccupancyObservation =
       normalized.occupancyObservation ?? {
         size: item.size,
@@ -84,7 +87,7 @@ function resolveSizeCaption(normalized: ScanItem): string | undefined {
   if (hasRule && normalized.selection.selectable) {
     return '可清理逻辑大小估算'
   }
-  if (normalized.judgment.status === 'pending') {
+  if (normalized.judgment.status === 'identifying' || normalized.judgment.status === 'pending') {
     return '空间占用估算'
   }
   if (hasRule) {
@@ -110,18 +113,36 @@ export function buildScanItemRenderInput(
 ): ScanItemRenderInput {
   const normalized = normalizeCandidate(item)
   const evidenceItems = buildEvidenceItems(item, normalized)
+  const isIdentifying = normalized.judgment.status === 'identifying'
   const isPending = normalized.judgment.status === 'pending'
 
   return {
     fileName: item.path.replace(/\//g, '\\').split('\\').pop() || item.path,
     path: item.path,
-    typeLabel: `${labels.contentTypeLabel} · ${item.drive}${isPending ? ' · 空间发现' : ' · 逻辑大小估算'}`,
+    typeLabel: `${labels.contentTypeLabel} · ${item.drive}${isIdentifying ? ' · 正在识别' : isPending ? ' · 空间发现' : ' · 逻辑大小估算'}`,
     sizeLabel: formatSize(item.size),
     sizeCaption: resolveSizeCaption(normalized),
     reason: item.reason,
     impact: normalized.selection.selectable ? item.impact : undefined,
     judgmentLabel: getJudgmentStatusLabel(normalized.judgment.status),
     judgmentClass: judgmentBadgeClass(normalized.judgment.status),
+    originLabel: getJudgmentOriginLabel(normalized.judgment.judgmentOrigin),
+    cleanupEligibility: normalized.judgment.judgmentOrigin === 'local-rule' ||
+      normalized.judgment.judgmentOrigin === 'local-rule-agent-reviewed'
+      ? `清理资格：${item.ruleName}`
+      : normalized.judgment.judgmentOrigin === 'protected-policy'
+        ? '清理资格：受保护路径，禁止清理'
+        : '清理资格：尚未获得本地规则授权',
+    agentReviewSummary: normalized.agentInsight
+      ? `智能复核：${normalized.agentInsight.reason}`
+      : normalized.judgment.judgmentOrigin === 'local-rule'
+        ? '智能复核：未运行（使用本地规则）'
+        : undefined,
+    safetyCheckSummary:
+      normalized.judgment.judgmentOrigin === 'protected-policy'
+        ? '安全检查：命中受保护目录'
+        : '安全检查：未命中受保护目录',
+    impactSummary: item.impact ? `影响说明：${item.impact}` : undefined,
     notSelectableReason: normalized.selection.selectable
       ? undefined
       : normalized.selection.notSelectableReason,

@@ -4,6 +4,13 @@ import { join } from 'path'
 import type { RuleConfig, RuleWithMeta, UserRulesState } from '../shared/types'
 import { loadRulesBundle, clearRulesCache } from './rules/rule-loader'
 import { validateRuleInput } from './rules/rule-validator'
+import { deleteRuleDraft } from './rules/rule-draft-store'
+import {
+  getLayeredActiveRules,
+  getLayeredRulesWithMeta,
+  importRuleDraftFromJson,
+  resetRuleLayerUserState
+} from './rules/rule-layer-service'
 
 export { loadRulesBundle, clearRulesCache }
 
@@ -14,22 +21,11 @@ function getUserStatePath(): string {
 }
 
 export function getAllRulesWithMeta(): RuleWithMeta[] {
-  const { rules } = loadRulesBundle()
   const state = loadUserState()
-
-  const builtin: RuleWithMeta[] = rules.map((rule) => ({
+  return getLayeredRulesWithMeta().map((rule) => ({
     ...rule,
-    enabled: !state.disabledRuleIds.includes(rule.id),
-    source: 'builtin'
+    enabled: rule.enabled && !state.disabledRuleIds.includes(rule.id)
   }))
-
-  const custom: RuleWithMeta[] = state.customRules.map((rule) => ({
-    ...rule,
-    enabled: !state.disabledRuleIds.includes(rule.id),
-    source: 'custom'
-  }))
-
-  return [...builtin, ...custom]
 }
 
 export function loadUserState(): UserRulesState {
@@ -37,7 +33,11 @@ export function loadUserState(): UserRulesState {
   if (!existsSync(path)) {
     return { disabledRuleIds: [], customRules: [] }
   }
-  return JSON.parse(readFileSync(path, 'utf-8')) as UserRulesState
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as UserRulesState
+  } catch {
+    return { disabledRuleIds: [], customRules: [] }
+  }
 }
 
 export function saveUserState(state: UserRulesState): void {
@@ -45,9 +45,8 @@ export function saveUserState(state: UserRulesState): void {
 }
 
 export function getActiveRules(): RuleConfig[] {
-  return getAllRulesWithMeta()
-    .filter((rule) => rule.enabled)
-    .map(({ enabled: _enabled, source: _source, ...rule }) => rule)
+  const state = loadUserState()
+  return getLayeredActiveRules().filter((rule) => !state.disabledRuleIds.includes(rule.id))
 }
 
 export function getActiveRulesWithMeta(): RuleWithMeta[] {
@@ -65,41 +64,45 @@ export function setRuleEnabled(ruleId: string, enabled: boolean): void {
 }
 
 export function removeCustomRule(ruleId: string): boolean {
-  const state = loadUserState()
-  const before = state.customRules.length
-  state.customRules = state.customRules.filter((rule) => rule.id !== ruleId)
-  state.disabledRuleIds = state.disabledRuleIds.filter((id) => id !== ruleId)
-  saveUserState(state)
-  return state.customRules.length < before
+  if (!ruleId.startsWith('draft:')) return false
+  return deleteRuleDraft(ruleId.replace(/^draft:/, ''))
 }
 
 export function importCustomRules(rules: unknown[]): number {
-  const state = loadUserState()
-  const builtinIds = loadRulesBundle().rules.map((r) => r.id)
   let imported = 0
-
   for (const raw of rules) {
-    const rule = validateRuleInput(raw, { builtinIds })
-    if (!rule) continue
-
-    const index = state.customRules.findIndex((item) => item.id === rule.id)
-    if (index >= 0) {
-      state.customRules[index] = rule
-    } else {
-      state.customRules.push(rule)
+    try {
+      importRuleDraftFromJson(raw)
+      imported++
+    } catch {
+      const rule = validateRuleInput(raw, { builtinIds: [] })
+      if (!rule) continue
+      importRuleDraftFromJson({
+        schemaVersion: '1',
+        name: rule.name,
+        contentType: rule.contentType ?? 'app-cache',
+        basePlaceholders: rule.paths,
+        relativePatterns: rule.patterns,
+        subdirs: rule.subdirs,
+        globDirs: rule.globDirs,
+        maxDepth: rule.maxDepth,
+        maxAgeDays: rule.maxAgeDays,
+        reason: rule.reason ?? rule.description ?? rule.name,
+        impact: rule.impact,
+        rebuildable: rule.rebuildable,
+        suggestedRisk: rule.category,
+        source: 'user-import',
+        createdAt: new Date().toISOString()
+      })
+      imported++
     }
-    if (!state.disabledRuleIds.includes(rule.id)) {
-      state.disabledRuleIds.push(rule.id)
-    }
-    imported++
   }
-
-  saveUserState(state)
   return imported
 }
 
 export function resetUserRules(): void {
   saveUserState({ disabledRuleIds: [], customRules: [] })
+  resetRuleLayerUserState()
 }
 
 export function getRuleById(ruleId: string): RuleConfig | undefined {

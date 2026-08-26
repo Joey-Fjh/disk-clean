@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { createScanSession, getScanSession, SCAN_SESSION_TTL_MS } from '../src/main/scan/scan-session-store'
+import {
+  createScanSession,
+  getScanSession,
+  SCAN_SESSION_TTL_MS,
+  updateScanSessionCandidates
+} from '../src/main/scan/scan-session-store'
 import type { ScanCandidate } from '../src/shared/types'
 
 function candidate(id: string): ScanCandidate {
@@ -33,5 +38,12 @@ describe('scan session TTL', () => {
 
     vi.advanceTimersByTime(SCAN_SESSION_TTL_MS + 1)
     expect(getScanSession(session.sessionId)).toBeNull()
+  })
+
+  it('increments revision when candidates are updated', () => {
+    const session = createScanSession('C:', 'quick', 'v1', [candidate('a')])
+    expect(session.revision).toBe(0)
+    updateScanSessionCandidates(session.sessionId, [candidate('b')])
+    expect(getScanSession(session.sessionId)?.revision).toBe(1)
   })
 })

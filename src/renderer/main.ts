@@ -1,7 +1,7 @@
 /// <reference path="../preload/index.d.ts" />
 import './settings-page'
 import './provider-settings'
-import type { Category, RuleWithMeta, ScanError, ScanItem, ScanResult } from '../shared/types'
+import type { Category, ScanError, ScanItem, ScanResult } from '../shared/types'
 import {
   CANDIDATE_TAB_LABELS,
   CATEGORY_DESCRIPTIONS,
@@ -21,10 +21,7 @@ import { buildScanItemRenderInput } from './candidate-render'
 import { createScanItemElement } from './safe-render'
 
 import {
-  formatRulesSummary,
   formatThemeSummary,
-  filterRulesByCategory,
-  type RulesCategoryFilter,
   type ThemeMode
 } from './settings-summaries'
 import { preservePanelScrollTop, switchMainTabPanel } from './panel-scroll'
@@ -35,6 +32,30 @@ import {
   shouldAutoAnalyzeAfterScan,
   wireAgentAnalysisUi
 } from './agent-analysis'
+import {
+  resetRuleDraftActionUi,
+  updateRuleDraftActionState,
+  wireRuleDraftActions
+} from './rule-draft-actions'
+import { RuleDraftCandidateSelectionState } from './rule-draft-candidate-selection'
+import {
+  advanceToActionStep,
+  enterRuleExtensionMode,
+  exitRuleExtensionMode,
+  getRuleExtensionStep,
+  isRuleExtensionModeActive,
+  setExtensionEntryHostsVisible,
+  shouldShowExtensionEntry,
+  updateRuleSampleCount,
+  wireRuleExtensionMode
+} from './rule-extension-mode'
+import {
+  mapScanProgressPhaseToTaskPhase,
+  resolveScanTaskHeadline,
+  resolveScanTaskSubline,
+  type ScanTaskPhase
+} from './scan-task-state'
+import { wireRuleKnowledgeSettings } from './rule-knowledge-settings'
 
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab')
 const panels = document.querySelectorAll<HTMLElement>('.tab-panel')
@@ -51,12 +72,24 @@ tabs.forEach((tab) => {
   })
 })
 
+wireRuleDraftActions(panelClean, () => ({
+  scanResult,
+  scanning,
+  ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
+  extensionStep: getRuleExtensionStep()
+}))
+wireRuleKnowledgeSettings()
+
 wireAgentAnalysisUi({
   onItemsUpdated: (items) => {
     if (!scanResult) return
     scanResult = { ...scanResult, items }
     preservePanelScrollTop(panelClean, () => renderCategories(items))
     updateSelectedSummary()
+  },
+  onFailed: () => {
+    scanTaskPhase = 'agent-failed'
+    updateScanTaskStatus(scanResult?.items.length ?? 0)
   },
   openSettings: () => {
     const settingsTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')
@@ -109,6 +142,7 @@ const progressFill = document.getElementById('progress-fill') as HTMLElement
 const progressLabel = document.getElementById('progress-label') as HTMLElement
 const progressRule = document.getElementById('progress-rule') as HTMLElement
 const progressHint = document.getElementById('progress-hint') as HTMLElement
+const scanTaskStatusEl = document.getElementById('scan-task-status') as HTMLElement
 const categoriesEl = document.getElementById('categories') as HTMLElement
 const totalSizeEl = document.getElementById('total-size') as HTMLElement
 const itemCountEl = document.getElementById('item-count') as HTMLElement
@@ -118,10 +152,12 @@ const statusText = document.getElementById('status-text') as HTMLElement
 
 let scanResult: ScanResult | null = null
 let scanning = false
+let scanTaskPhase: ScanTaskPhase = 'idle'
 let renderTimer: number | null = null
 const ruleGroupExpansion = new RuleGroupExpansionState()
 const resultCategoryView = new ResultCategoryViewState()
 const candidateSelection = new CandidateSelectionViewState()
+const ruleDraftSelection = new RuleDraftCandidateSelectionState()
 
 function formatSize(bytes: number): string {
   return formatBytes(bytes)
@@ -131,6 +167,54 @@ function categoryBadgeClass(category: Category): string {
   if (category === 'safe') return 'badge-safe'
   if (category === 'recommended') return 'badge-recommended'
   return 'badge-dangerous'
+}
+
+function updateScanTaskStatus(discoveredCount = 0): void {
+  if (!scanTaskStatusEl) return
+  scanTaskStatusEl.textContent = resolveScanTaskSubline({
+    phase: scanTaskPhase,
+    discoveredCount,
+    agentStatus: undefined
+  })
+}
+
+function syncRuleExtensionUi(): void {
+  const count = ruleDraftSelection.getSelectedIds().size
+  updateRuleSampleCount(count)
+  updateRuleDraftActionState({
+    scanResult,
+    scanning,
+    ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
+    extensionStep: getRuleExtensionStep()
+  })
+}
+
+function createExtensionEntryHost(): HTMLElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'rule-extension-entry-host'
+  wrap.dataset.role = 'rule-extension-entry-host'
+
+  const desc = document.createElement('p')
+  desc.className = 'rule-extension-entry-desc'
+  desc.textContent =
+    '这些项目尚未获得清理授权。如果你确认它们属于可重复生成的缓存，可以创建识别规则。'
+
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'btn btn-secondary'
+  btn.id = 'rule-extension-entry'
+  btn.textContent = '创建识别规则'
+  btn.addEventListener('click', () => {
+    enterRuleExtensionMode()
+    setExtensionEntryHostsVisible(false)
+    syncRuleExtensionUi()
+    if (scanResult) {
+      preservePanelScrollTop(panelClean, () => renderCategories(scanResult!.items))
+    }
+  })
+
+  wrap.append(desc, btn)
+  return wrap
 }
 
 function updateProgressUI(p: {
@@ -143,8 +227,13 @@ function updateProgressUI(p: {
   categoryCurrent: number
   categoryTotal: number
 }): void {
-  const phaseLabel = p.phase ? SCAN_PHASE_LABELS[p.phase] : '扫描'
-  progressLabel.textContent = `正在扫描 · ${phaseLabel}`
+  scanTaskPhase = mapScanProgressPhaseToTaskPhase(true, p.phase)
+  progressLabel.textContent = resolveScanTaskHeadline({
+    phase: scanTaskPhase,
+    discoveredCount: p.current,
+    agentStatus: undefined
+  })
+  updateScanTaskStatus(p.current)
 
   if (p.phase === 'space-discovery') {
     progressRule.textContent = p.label || '…'
@@ -172,9 +261,37 @@ function updateLiveSummary(items: ScanItem[]): void {
 function scheduleRender(items: ScanItem[]): void {
   if (renderTimer !== null) window.clearTimeout(renderTimer)
   renderTimer = window.setTimeout(() => {
-    preservePanelScrollTop(panelClean, () => renderCategories(items))
+    preservePanelScrollTop(panelClean, () => {
+      if (scanning) renderScanningDiscoveries(items)
+      else renderCategories(items)
+    })
     renderTimer = null
   }, 120)
+}
+
+function renderScanningDiscoveries(items: ScanItem[]): void {
+  categoriesEl.innerHTML = ''
+  const wrapper = document.createElement('section')
+  wrapper.className = 'scanning-discoveries'
+
+  const title = document.createElement('h3')
+  title.className = 'scanning-discoveries-title'
+  title.textContent = `正在识别（${items.length}）`
+  wrapper.appendChild(title)
+
+  const hint = document.createElement('p')
+  hint.className = 'scanning-discoveries-hint'
+  hint.textContent = '扫描与本地规则整理完成前，结果仅供预览，不可勾选清理。'
+  wrapper.appendChild(hint)
+
+  const list = document.createElement('ul')
+  list.className = 'item-list'
+  for (const item of items.slice(-50)) {
+    list.appendChild(renderScanItemElement(item))
+  }
+  wrapper.appendChild(list)
+  categoriesEl.appendChild(wrapper)
+  updateScanTaskStatus(items.length)
 }
 
 function setScanning(active: boolean): void {
@@ -193,6 +310,10 @@ function setScanning(active: boolean): void {
 function finishScan(result: ScanResult): void {
   scanResult = result
   const { items, errors, cancelled, drive } = result
+  scanTaskPhase = cancelled ? 'cancelled' : 'organizing-local'
+  updateScanTaskStatus(items.length)
+
+  exitRuleExtensionMode()
 
   candidateSelection.reconcileFinalItems(items, getDefaultChecked)
 
@@ -208,13 +329,19 @@ function finishScan(result: ScanResult): void {
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
   if (cancelled) {
     statusText.textContent = `${driveLabel} · 扫描已停止 · 保留 ${items.length} 项结果`
+    scanTaskPhase = 'cancelled'
   } else if (errors.length > 0) {
     statusText.textContent = `${driveLabel} · 扫描完成，${errors.length} 个路径因权限等原因跳过`
+    scanTaskPhase = 'completed'
   } else {
     statusText.textContent = `${driveLabel} · 扫描完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
+    scanTaskPhase = 'completed'
   }
+  updateScanTaskStatus(items.length)
 
   if (shouldAutoAnalyzeAfterScan(cancelled === true)) {
+    scanTaskPhase = 'agent-reviewing'
+    updateScanTaskStatus(items.length)
     void runAgentAnalysisForSession(result.sessionId, {
       onItemsUpdated: (items) => {
         if (!scanResult || scanResult.sessionId !== result.sessionId) return
@@ -222,6 +349,12 @@ function finishScan(result: ScanResult): void {
         candidateSelection.reconcileAfterAgentUpdate(items, isSelectable, getDefaultChecked)
         preservePanelScrollTop(panelClean, () => renderCategories(items))
         updateSelectedSummary()
+        scanTaskPhase = 'completed'
+        updateScanTaskStatus(items.length)
+      },
+      onFailed: () => {
+        scanTaskPhase = 'agent-failed'
+        updateScanTaskStatus(items.length)
       },
       openSettings: () => {
         document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')?.click()
@@ -229,6 +362,8 @@ function finishScan(result: ScanResult): void {
     })
   } else {
     onScanCancelledNoAnalysis(result.sessionId)
+    scanTaskPhase = cancelled ? 'cancelled' : 'completed'
+    updateScanTaskStatus(items.length)
   }
 }
 
@@ -248,12 +383,24 @@ function renderScanItemElement(item: ScanItem): HTMLLIElement {
 function updateSelectedSummary(): void {
   if (!scanResult) {
     cleanBtn.disabled = true
+    updateRuleDraftActionState({
+      scanResult: null,
+      scanning,
+      ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
+      extensionStep: getRuleExtensionStep()
+    })
     return
   }
   const selected = scanResult.items.filter((i) => candidateSelection.isSelected(i.id) && isSelectable(i))
   const size = selected.reduce((s, i) => s + i.size, 0)
   selectedSizeEl.textContent = formatSize(size)
   cleanBtn.disabled = scanning || selected.length === 0
+  updateRuleDraftActionState({
+    scanResult,
+    scanning,
+    ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
+    extensionStep: getRuleExtensionStep()
+  })
 }
 
 function renderCategories(items: ScanItem[]): void {
@@ -305,7 +452,7 @@ function renderCategories(items: ScanItem[]): void {
   ): void {
     const ids = getDeletableItems(catItems).map((item) => item.id)
     candidateSelection.setMany(ids, selected)
-    list.querySelectorAll<HTMLInputElement>('input[type=checkbox]:not(:disabled)').forEach((cb) => {
+    list.querySelectorAll<HTMLInputElement>('input[data-role="cleanup"]:not(:disabled)').forEach((cb) => {
       cb.checked = selected
     })
     updateSelectAllState(selectAllCb, catItems)
@@ -375,7 +522,7 @@ function renderCategories(items: ScanItem[]): void {
         const normalized = normalizeCandidate(item)
         const li = renderScanItemElement(item)
 
-        const checkbox = li.querySelector('input') as HTMLInputElement
+        const checkbox = li.querySelector('input[data-role="cleanup"]') as HTMLInputElement
         checkbox.dataset.id = item.id
         checkbox.checked =
           normalized.selection.selectable && candidateSelection.isSelected(item.id)
@@ -386,6 +533,23 @@ function renderCategories(items: ScanItem[]): void {
           updateSelectAllState(selectAllCb, catItems)
           updateSelectedSummary()
         })
+
+        const draftPickLabel = document.createElement('label')
+        draftPickLabel.className = 'rule-draft-pick'
+        draftPickLabel.hidden = !isRuleExtensionModeActive()
+        draftPickLabel.title = '选作规则样本（与清理勾选独立）'
+        const draftPick = document.createElement('input')
+        draftPick.type = 'checkbox'
+        draftPick.dataset.role = 'rule-draft'
+        draftPick.dataset.id = item.id
+        draftPick.checked = ruleDraftSelection.isSelected(item.id)
+        draftPick.disabled = scanning || !scanResult?.sessionId
+        draftPick.addEventListener('change', () => {
+          ruleDraftSelection.toggle(item.id, draftPick.checked)
+          syncRuleExtensionUi()
+        })
+        draftPickLabel.append(draftPick, document.createTextNode('规则样本'))
+        li.appendChild(draftPickLabel)
 
         const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
         pathBtnEl.addEventListener('click', async () => {
@@ -454,6 +618,18 @@ function renderCategories(items: ScanItem[]): void {
       </div>
     `
 
+    if (
+      category === 'dangerous' &&
+      shouldShowExtensionEntry({
+        scanning,
+        hasSession: Boolean(scanResult?.sessionId),
+        cancelled: scanResult?.cancelled,
+        dangerousCandidateCount: catItems.length
+      })
+    ) {
+      panel.querySelector('.category-panel-header')?.appendChild(createExtensionEntryHost())
+    }
+
     if (catItems.length === 0) {
       const empty = document.createElement('div')
       empty.className = 'empty-category'
@@ -493,11 +669,29 @@ function renderCategories(items: ScanItem[]): void {
   categoriesEl.appendChild(wrapper)
 }
 
-async function startScan(): Promise<void> {
-  const drive = driveSelect.value || 'all'
+async function startScan(options: { drive?: string; confirmRescan?: boolean } = {}): Promise<void> {
+  const drive = options.drive ?? (driveSelect.value || 'all')
+  if (
+    options.confirmRescan !== false &&
+    scanResult &&
+    scanResult.items.some((item) => candidateSelection.isSelected(item.id) && isSelectable(item))
+  ) {
+    const confirmed = await showConfirmDialog({
+      title: '重新扫描',
+      message: '重新扫描会替换当前结果并清除已勾选项目。',
+      details: ['当前清理勾选将丢失', '规则样本选择模式将退出']
+    })
+    if (!confirmed) return
+  }
+
   setScanning(true)
+  scanTaskPhase = 'scanning-disk'
+  updateScanTaskStatus(0)
   candidateSelection.clear()
+  ruleDraftSelection.clear()
   resetAgentAnalysisUi()
+  resetRuleDraftActionUi()
+  exitRuleExtensionMode()
   ruleGroupExpansion.clear()
   resultCategoryView.clear()
   scanResult = null
@@ -506,7 +700,10 @@ async function startScan(): Promise<void> {
   categoriesEl.innerHTML = ''
   progressFill.style.width = '0%'
   progressRule.textContent = '准备开始…'
-  progressLabel.textContent = '正在扫描 · 空间发现'
+  progressLabel.textContent = resolveScanTaskHeadline({
+    phase: 'scanning-disk',
+    discoveredCount: 0
+  })
   progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · 统一扫描`
   statusText.textContent = '扫描中，发现的项目将实时列出…'
 
@@ -624,142 +821,44 @@ async function loadDriveOptions(): Promise<void> {
 
 void loadDriveOptions()
 
-// ── Rules settings ──
-const rulesList = document.getElementById('rules-list') as HTMLElement
-const rulesStatus = document.getElementById('rules-status') as HTMLElement
-const rulesCardSummary = document.getElementById('rules-card-summary') as HTMLSpanElement
-const rulesCategoryTabs = document.getElementById('rules-category-tabs')!
-const importRulesBtn = document.getElementById('import-rules-btn') as HTMLButtonElement
-const resetRulesBtn = document.getElementById('reset-rules-btn') as HTMLButtonElement
-
-let allRules: RuleWithMeta[] = []
-let rulesCategoryFilter: RulesCategoryFilter = 'all'
-
-function updateRulesCardSummary(): void {
-  rulesCardSummary.textContent = formatRulesSummary(allRules)
-}
-
-function setRulesCategoryFilter(filter: RulesCategoryFilter): void {
-  rulesCategoryFilter = filter
-  rulesCategoryTabs.querySelectorAll<HTMLButtonElement>('[data-rules-filter]').forEach((tab) => {
-    const selected = tab.dataset.rulesFilter === filter
-    tab.classList.toggle('active', selected)
-    tab.setAttribute('aria-selected', String(selected))
-    tab.tabIndex = selected ? 0 : -1
-  })
-  renderRulesList()
-}
-
-function renderRulesList(): void {
-  const filter = rulesCategoryFilter
-  const order = CATEGORY_ORDER
-  const filtered = filterRulesByCategory(allRules, filter)
-
-  rulesList.innerHTML = ''
-  if (filtered.length === 0) {
-    rulesList.innerHTML = '<div class="rules-empty">没有匹配的规则</div>'
-    return
-  }
-
-  const groups =
-    filter === 'all'
-      ? order
-          .map((cat) => ({
-            category: cat,
-            rules: filtered.filter((r) => r.category === cat)
-          }))
-          .filter((g) => g.rules.length > 0)
-      : [{ category: filter as Category, rules: filtered }]
-
-  for (const group of groups) {
-    if (filter === 'all') {
-      const title = document.createElement('div')
-      title.className = 'rules-group-title'
-      title.textContent = RULE_CATEGORY_LABELS[group.category]
-      rulesList.appendChild(title)
-    }
-
-    for (const rule of group.rules) {
-      const row = document.createElement('div')
-      row.className = `rule-item${rule.enabled ? '' : ' disabled'}`
-
-      const main = document.createElement('div')
-      main.className = 'rule-item-main'
-      const nameEl = document.createElement('div')
-      nameEl.className = 'rule-item-name'
-      nameEl.textContent = rule.name
-      const metaEl = document.createElement('div')
-      metaEl.className = 'rule-item-meta'
-      metaEl.textContent = `${rule.contentType ? CONTENT_TYPE_LABELS[rule.contentType] + ' · ' : ''}${rule.id}${rule.source === 'custom' ? ' · 自定义' : ''}`
-      main.append(nameEl, metaEl)
-
-      const actions = document.createElement('div')
-      actions.className = 'rule-item-actions'
-      const toggleLabel = document.createElement('label')
-      toggleLabel.className = 'rule-toggle'
-      const toggle = document.createElement('input')
-      toggle.type = 'checkbox'
-      toggle.checked = rule.enabled
-      toggleLabel.append(toggle, document.createElement('span'))
-
-      actions.appendChild(toggleLabel)
-      if (rule.source === 'custom') {
-        const deleteBtn = document.createElement('button')
-        deleteBtn.className = 'rule-delete'
-        deleteBtn.textContent = '删除'
-        actions.appendChild(deleteBtn)
-      }
-
-      row.append(main, actions)
-      toggle.addEventListener('change', async () => {
-        allRules = await window.diskClean.setRuleEnabled(rule.id, toggle.checked)
-        renderRulesList()
-        rulesStatus.textContent = toggle.checked ? `已启用：${rule.name}` : `已禁用：${rule.name}`
-      })
-
-      const deleteBtn = row.querySelector('.rule-delete') as HTMLButtonElement | null
-      deleteBtn?.addEventListener('click', async () => {
-        if (!confirm(`确认删除自定义规则「${rule.name}」？`)) return
-        const result = await window.diskClean.removeRule(rule.id)
-        allRules = result.rules
-        renderRulesList()
-        rulesStatus.textContent = result.removed ? `已删除：${rule.name}` : '删除失败'
-      })
-
-      rulesList.appendChild(row)
-    }
-  }
-
-  const enabled = allRules.filter((r) => r.enabled).length
-  rulesStatus.textContent = `共 ${allRules.length} 条规则，已启用 ${enabled} 条`
-  updateRulesCardSummary()
-}
-
-async function loadRulesSettings(): Promise<void> {
-  allRules = await window.diskClean.listRules()
-  renderRulesList()
-}
-
-rulesCategoryTabs.querySelectorAll<HTMLButtonElement>('[data-rules-filter]').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    const filter = tab.dataset.rulesFilter as RulesCategoryFilter
-    setRulesCategoryFilter(filter)
-  })
+wireRuleExtensionMode({
+  onExit: () => {
+    const result = scanResult
+    if (!result) return
+    setExtensionEntryHostsVisible(true)
+    syncRuleExtensionUi()
+    preservePanelScrollTop(panelClean, () => renderCategories(result.items))
+  },
+  onNext: async () => {
+    if (!scanResult || ruleDraftSelection.getSelectedIds().size === 0) return
+    const hasProvider = await window.diskClean.getProviderConfig()
+    advanceToActionStep(Boolean(hasProvider?.hasKey))
+    syncRuleExtensionUi()
+  },
+  onBackToSelect: () => {
+    syncRuleExtensionUi()
+  },
+  onOpenSettings: () => {
+    document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')?.click()
+    document.getElementById('settings-card-rules-header')?.click()
+    document.querySelector<HTMLButtonElement>('[data-rules-knowledge-tab="drafts"]')?.click()
+  },
+  onBackToResults: () => {
+    const result = scanResult
+    if (!result) return
+    setExtensionEntryHostsVisible(true)
+    syncRuleExtensionUi()
+    preservePanelScrollTop(panelClean, () => renderCategories(result.items))
+  },
+  getSelectedCount: () => ruleDraftSelection.getSelectedIds().size
 })
 
-importRulesBtn.addEventListener('click', async () => {
-  const result = await window.diskClean.importRules()
-  allRules = result.rules
-  renderRulesList()
-  rulesStatus.textContent =
-    result.imported > 0 ? `成功导入 ${result.imported} 条规则` : '未导入任何规则'
+window.addEventListener('diskclean:trigger-rescan', () => {
+  void triggerRescanFromSettings()
 })
 
-resetRulesBtn.addEventListener('click', async () => {
-  if (!confirm('确认恢复默认规则？将清除所有自定义规则和禁用设置。')) return
-  allRules = await window.diskClean.resetRules()
-  renderRulesList()
-  rulesStatus.textContent = '已恢复默认规则'
-})
-
-void loadRulesSettings()
+async function triggerRescanFromSettings(drive?: string): Promise<void> {
+  document.querySelector<HTMLButtonElement>('.tab[data-tab="clean"]')?.click()
+  if (drive) driveSelect.value = drive
+  await startScan({ drive: drive ?? driveSelect.value, confirmRescan: true })
+}

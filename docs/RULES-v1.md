@@ -5,6 +5,7 @@
 > - 本文档描述的是 **当前 V1 规则系统** 的实现说明，对应当前代码中的 `RuleScanner`、`config/rules/` 与 `SafetyValidator` 授权逻辑。
 > - 它 **不再代表** 产品的长期核心方向；已确认的目标方案是 **Agent 驱动的统一扫描与清理流程**（见 [PRODUCT-AGENT-DESIGN.md](./PRODUCT-AGENT-DESIGN.md)）。
 > - 后续规则将逐步 **降级为可选经验与证据层**（供 Agent 参考），而非扫描与判断的唯一基础。
+> - **阶段 4.1** 起规则分为四层，详见 [RULES-v2.md](./RULES-v2.md)；V1 目录 `config/rules/` 仍作兼容回退。
 > - **迁移期间不得提前移除** 现有规则与 `SafetyValidator` 依赖；Agent 方案落地前，清理执行仍须通过规则授权校验。
 
 ---

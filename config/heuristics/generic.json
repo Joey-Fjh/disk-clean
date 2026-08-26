@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1",
+  "heuristics": [
+    {
+      "id": "heuristic-cache-dir",
+      "name": "缓存目录特征",
+      "contentType": "app-cache",
+      "globDirs": ["**/Cache", "**/cache"],
+      "maxDepth": 4,
+      "reason": "目录名或结构符合常见缓存特征",
+      "rebuildable": true
+    },
+    {
+      "id": "heuristic-log-dir",
+      "name": "日志目录特征",
+      "contentType": "app-logs",
+      "globDirs": ["**/Logs", "**/logs"],
+      "maxDepth": 4,
+      "reason": "目录名或结构符合常见日志特征",
+      "rebuildable": true
+    },
+    {
+      "id": "heuristic-temp-dir",
+      "name": "临时目录特征",
+      "contentType": "system-temp",
+      "globDirs": ["**/Temp", "**/tmp"],
+      "maxDepth": 3,
+      "reason": "目录名或结构符合常见临时文件特征",
+      "rebuildable": true
+    }
+  ]
+}

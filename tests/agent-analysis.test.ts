@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getCurrentAgentAnalysis,
+  onAgentAnalysisComplete,
   onAgentAnalysisFailed,
   onScanCancelledNoAnalysis,
   resetAgentAnalysisUi,
@@ -58,6 +59,23 @@ describe('agent analysis renderer state', () => {
     onAgentAnalysisFailed('session-a', '模型鉴权失败')
     expect(document.getElementById('agent-analysis-overview')?.textContent).toContain(
       '本地规则建议仍可使用'
+    )
+  })
+
+  it('describes local-rule completion when provider key is missing', () => {
+    onAgentAnalysisComplete({
+      sessionId: 'session-a',
+      status: 'skipped_no_provider',
+      analyzedCount: 0,
+      omittedCount: 0,
+      appliedCount: 0,
+      skippedInvalidCount: 0
+    })
+    expect(document.getElementById('agent-analysis-headline')?.textContent).toContain(
+      '已使用本地规则完成分析'
+    )
+    expect(document.getElementById('agent-analysis-overview')?.textContent).toContain(
+      '本地规则和安全策略'
     )
   })
 

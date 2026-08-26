@@ -41,7 +41,7 @@ function renderBanner(): void {
     analysis.status === 'running'
       ? 'Agent 正在分析'
       : analysis.status === 'skipped_no_provider'
-        ? '未配置模型，本次仅完成本地空间发现'
+        ? '未配置模型，已使用本地规则完成分析'
         : analysis.status === 'cancelled'
           ? (analysis.headline ?? '扫描已停止')
           : analysis.status === 'failed'
@@ -52,7 +52,7 @@ function renderBanner(): void {
     analysis.status === 'running'
       ? 'Agent 自动分析扫描摘要并提供建议，由你确认后安全执行。'
       : analysis.status === 'skipped_no_provider'
-        ? '配置模型连接后，可在扫描完成后获得智能清理建议。'
+        ? '当前结果来自已启用的本地规则和安全策略；配置模型后可增加 Agent 智能复核。'
         : analysis.status === 'cancelled'
           ? (analysis.overview ?? '未运行智能分析')
           : analysis.status === 'failed'
@@ -128,6 +128,7 @@ export function onAgentAnalysisFailed(sessionId: string, message: string): void 
 
 export interface AgentAnalysisCallbacks {
   onItemsUpdated: (items: ScanItem[]) => void
+  onFailed?: () => void
   openSettings: () => void
 }
 
@@ -171,6 +172,7 @@ export function runAgentAnalysisForSession(
       if (isStaleGeneration(generation)) return
       const message = error instanceof Error ? error.message : String(error)
       onAgentAnalysisFailed(sessionId, message)
+      callbacks.onFailed?.()
     } finally {
       if (activeRequest?.generation === generation) {
         activeRequest = null

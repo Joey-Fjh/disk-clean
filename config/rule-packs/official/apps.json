@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1",
+  "id": "official-apps",
+  "name": "应用规则包",
+  "version": "1.0.0",
+  "origin": "official",
+  "platform": "windows",
+  "description": "常见桌面应用缓存",
+  "rules": [
+    {
+      "id": "wechat-cache",
+      "name": "微信缓存",
+      "category": "recommended",
+      "contentType": "chat",
+      "paths": [
+        "%USERPROFILE%\\Documents\\WeChat Files"
+      ],
+      "globDirs": [
+        "**/FileStorage/Cache"
+      ],
+      "maxDepth": 4,
+      "defaultChecked": false,
+      "description": "仅微信 Cache 目录",
+      "reason": "微信图片与视频缓存",
+      "impact": "聊天记录保留，缓存需重新加载",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "wechat-media",
+      "name": "微信媒体文件",
+      "category": "dangerous",
+      "contentType": "user-data",
+      "paths": [
+        "%USERPROFILE%\\Documents\\WeChat Files"
+      ],
+      "globDirs": [
+        "**/FileStorage/Image",
+        "**/FileStorage/Video"
+      ],
+      "maxDepth": 4,
+      "defaultChecked": false,
+      "deletable": false,
+      "description": "可能是唯一副本，仅分析",
+      "reason": "微信图片与视频文件",
+      "impact": "删除后无法恢复聊天记录中的媒体",
+      "rebuildable": false
+    },
+    {
+      "id": "qq-preview-cache",
+      "name": "QQ 预览缓存",
+      "category": "dangerous",
+      "contentType": "user-data",
+      "paths": [
+        "%USERPROFILE%\\Documents\\Tencent Files"
+      ],
+      "globDirs": [
+        "**/Image",
+        "**/Video",
+        "**/FileRecv"
+      ],
+      "maxDepth": 4,
+      "defaultChecked": false,
+      "deletable": false,
+      "description": "用户接收的文件与媒体，仅分析",
+      "reason": "QQ 图片、视频与接收文件",
+      "impact": "可能是唯一副本，不可自动删除",
+      "rebuildable": false
+    },
+    {
+      "id": "downloads-installers",
+      "name": "下载目录安装包",
+      "category": "recommended",
+      "contentType": "download-leftover",
+      "paths": [
+        "%USERPROFILE%\\Downloads"
+      ],
+      "patterns": [
+        "*.exe",
+        "*.msi",
+        "*.iso"
+      ],
+      "maxAgeDays": 30,
+      "defaultChecked": false,
+      "reason": "超过 30 天的安装包文件",
+      "impact": "已安装程序不受影响，未备份的安装包将丢失",
+      "rebuildable": false,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "app-logs",
+      "name": "常见应用日志",
+      "category": "recommended",
+      "contentType": "app-logs",
+      "paths": [
+        "%LOCALAPPDATA%",
+        "%APPDATA%"
+      ],
+      "globDirs": [
+        "**/Logs",
+        "**/logs"
+      ],
+      "maxDepth": 3,
+      "defaultChecked": false,
+      "reason": "各应用产生的日志目录",
+      "impact": "排障时可能缺少历史日志",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    }
+  ]
+}

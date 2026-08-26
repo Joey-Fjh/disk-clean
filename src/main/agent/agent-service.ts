@@ -3,6 +3,7 @@ import { AGENT_LIMITS } from '../../shared/agent-limits'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult, AgentAnalysisPublic } from '../../shared/agent-types'
 import type { ScanItem } from '../../shared/types'
 import { getScanSession, updateScanSessionCandidates } from '../scan/scan-session-store'
+import { getProtectedPaths } from '../rules'
 import { ProviderError } from '../provider/provider-errors'
 import { chatCompletion } from '../provider/provider-client'
 import { getProviderConfig, requireRunnableConfig } from '../provider/provider-service'
@@ -117,7 +118,8 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
     const { items: updatedItems, appliedCount } = applyAgentRecommendations(
       items,
       filtered.accepted,
-      build.refToId
+      build.refToId,
+      getProtectedPaths()
     )
 
     if (!state.isActiveRequest(requestId, sessionId)) {

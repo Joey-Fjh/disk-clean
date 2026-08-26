@@ -1,3 +1,5 @@
+import type { AgentVerdict } from './agent-types'
+
 export type Category = 'safe' | 'recommended' | 'dangerous'
 
 export type ScanMode = 'quick' | 'full' | 'combined'
@@ -81,9 +83,16 @@ export type EntryKind = 'file' | 'directory'
 
 export type DiscoverySource = 'space-scan' | 'rule' | 'local-feature' | 'agent'
 
-export type JudgmentStatus = 'pending' | 'suggested' | 'caution' | 'keep' | 'uncertain'
+export type JudgmentStatus = 'identifying' | 'pending' | 'suggested' | 'caution' | 'keep' | 'uncertain'
 
 export type JudgmentSource = 'legacy-rule' | 'agent' | 'local-policy' | 'none'
+
+export type JudgmentOrigin =
+  | 'local-rule'
+  | 'local-rule-agent-reviewed'
+  | 'agent-advice-only'
+  | 'space-evidence-only'
+  | 'protected-policy'
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown'
 
@@ -101,6 +110,8 @@ export interface CandidateJudgment {
   source: JudgmentSource
   confidence: ConfidenceLevel
   basis: string[]
+  judgmentOrigin?: JudgmentOrigin
+  agentVerdict?: AgentVerdict
 }
 
 export interface CandidateSelection {

@@ -6,6 +6,13 @@ import type {
   SaveProviderConfigInput
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
+import type {
+  AgentGenerateRuleDraftRequest,
+  AgentGenerateRuleDraftResult,
+  CoreSafetyPolicy,
+  RuleDraftPreviewResult,
+  StoredRuleDraft
+} from '../shared/rule-layer-types'
 import type { AgentIpcResult } from '../shared/agent-ipc'
 import type { ProviderIpcResult } from '../shared/provider-ipc'
 import type {
@@ -96,5 +103,42 @@ contextBridge.exposeInMainWorld('diskClean', {
   testProviderCapability: (): Promise<ProviderTestResult> =>
     invokeProviderIpc<ProviderTestResult>('provider:testCapability'),
   analyzeScan: (request: AgentAnalyzeRequest): Promise<AgentAnalyzeResult> =>
-    invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request)
+    invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request),
+  generateRuleDraft: (request: AgentGenerateRuleDraftRequest): Promise<AgentGenerateRuleDraftResult> =>
+    invokeAgentIpc<AgentGenerateRuleDraftResult>('agent:generate-rule-draft', request),
+  cancelRuleDraft: (): Promise<boolean> => invokeAgentIpc<boolean>('agent:cancel-rule-draft'),
+  listRulePacks: (): Promise<
+    Array<import('../shared/rule-layer-types').RulePackManifest & { enabled: boolean; ruleCount: number }>
+  > => invokeAgentIpc('rules:listPacks'),
+  setRulePackEnabled: (packId: string, enabled: boolean): Promise<boolean> =>
+    invokeAgentIpc<boolean>('rules:setPackEnabled', packId, enabled),
+  listRuleDrafts: (): Promise<StoredRuleDraft[]> => invokeAgentIpc('rules:listDrafts'),
+  previewRuleDraft: (draftId: string, sessionId?: string): Promise<RuleDraftPreviewResult> =>
+    invokeAgentIpc('rules:previewDraft', draftId, sessionId),
+  approveRuleDraft: (
+    draftId: string
+  ): Promise<{ ok: boolean; message: string; draft?: StoredRuleDraft }> =>
+    invokeAgentIpc('rules:approveDraft', draftId),
+  confirmEnableRuleDraft: (
+    draftId: string
+  ): Promise<{ ok: boolean; message: string; code?: string; draft?: StoredRuleDraft }> =>
+    invokeAgentIpc('rules:confirmEnableDraft', draftId),
+  enableRuleDraft: (draftId: string): Promise<{ ok: boolean; message: string; code?: string }> =>
+    invokeAgentIpc('rules:enableDraft', draftId),
+  disableRuleDraft: (draftId: string): Promise<boolean> => invokeAgentIpc('rules:disableDraft', draftId),
+  rejectRuleDraft: (draftId: string): Promise<boolean> => invokeAgentIpc('rules:rejectDraft', draftId),
+  deleteRuleDraft: (draftId: string): Promise<boolean> => invokeAgentIpc('rules:deleteDraft', draftId),
+  importRuleDraft: (): Promise<{ imported: boolean; draft: StoredRuleDraft | null }> =>
+    invokeAgentIpc('rules:importDraft'),
+  exportRuleWritingPack: (input: {
+    sessionId: string
+    candidateIds?: string[]
+  }): Promise<{ exported: boolean }> => invokeAgentIpc('rules:exportWritingPack', input),
+  getSafetyPolicy: (): Promise<CoreSafetyPolicy> => invokeAgentIpc('rules:safetyPolicy'),
+  getActiveScanSession: (): Promise<{
+    sessionId: string
+    fingerprint: string
+    drive: string
+    candidateCount: number
+  } | null> => invokeAgentIpc('scan:getActiveSession')
 })

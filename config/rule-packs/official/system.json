@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1",
+  "id": "official-system",
+  "name": "系统规则包",
+  "version": "1.0.0",
+  "origin": "official",
+  "platform": "windows",
+  "description": "系统临时与缓存清理",
+  "rules": [
+    {
+      "id": "user-temp",
+      "name": "用户临时文件",
+      "category": "safe",
+      "contentType": "system-temp",
+      "paths": [
+        "%TEMP%",
+        "%LOCALAPPDATA%\\Temp"
+      ],
+      "defaultChecked": true,
+      "reason": "应用和系统产生的临时文件",
+      "impact": "部分程序可能需重新生成临时数据",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "windows-temp",
+      "name": "Windows Temp",
+      "category": "safe",
+      "contentType": "system-temp",
+      "paths": [
+        "%SystemRoot%\\Temp"
+      ],
+      "defaultChecked": true,
+      "reason": "系统级临时目录",
+      "impact": "正在使用的临时文件可能删不掉",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "thumbcache",
+      "name": "缩略图缓存",
+      "category": "safe",
+      "contentType": "system-temp",
+      "paths": [
+        "%LOCALAPPDATA%\\Microsoft\\Windows\\Explorer"
+      ],
+      "patterns": [
+        "thumbcache_*.db"
+      ],
+      "defaultChecked": true,
+      "reason": "资源管理器缩略图数据库",
+      "impact": "首次浏览图片文件夹时会重新生成",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "error-reports",
+      "name": "Windows 错误报告",
+      "category": "safe",
+      "contentType": "app-logs",
+      "paths": [
+        "%LOCALAPPDATA%\\Microsoft\\Windows\\WER"
+      ],
+      "defaultChecked": true,
+      "reason": "程序崩溃后生成的错误报告缓存",
+      "impact": "不影响系统运行",
+      "rebuildable": true,
+      "cleanupStrategy": "trash"
+    },
+    {
+      "id": "winsxs",
+      "name": "Windows 组件存储",
+      "category": "dangerous",
+      "contentType": "system-protected",
+      "paths": [
+        "%SystemRoot%\\WinSxS"
+      ],
+      "defaultChecked": false,
+      "description": "系统管理目录",
+      "reason": "Windows 组件与更新存储",
+      "impact": "不可直接删除，由系统管理",
+      "rebuildable": false,
+      "deletable": false
+    },
+    {
+      "id": "windows-old",
+      "name": "Windows.old",
+      "category": "dangerous",
+      "contentType": "install-leftover",
+      "paths": [
+        "%SystemDrive%\\Windows.old"
+      ],
+      "defaultChecked": false,
+      "description": "升级残留，删前需确认不再回退",
+      "reason": "系统升级备份目录",
+      "impact": "删除后无法回退到旧版本 Windows",
+      "rebuildable": false,
+      "deletable": false
+    },
+    {
+      "id": "hiberfil",
+      "name": "hiberfil.sys",
+      "category": "dangerous",
+      "contentType": "system-protected",
+      "paths": [
+        "%SystemDrive%\\hiberfil.sys"
+      ],
+      "defaultChecked": false,
+      "description": "休眠文件，关休眠才能安全处理",
+      "reason": "系统休眠状态文件",
+      "impact": "不建议手工删除",
+      "deletable": false
+    },
+    {
+      "id": "pagefile",
+      "name": "pagefile.sys",
+      "category": "dangerous",
+      "contentType": "system-protected",
+      "paths": [
+        "%SystemDrive%\\pagefile.sys"
+      ],
+      "defaultChecked": false,
+      "description": "虚拟内存，不建议手工删除",
+      "reason": "系统虚拟内存文件",
+      "impact": "删除可能影响系统稳定性",
+      "deletable": false
+    }
+  ]
+}

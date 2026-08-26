@@ -9,6 +9,7 @@ export interface ScanSession {
   sessionId: string
   createdAt: number
   expiresAt: number
+  revision: number
   drive: string
   mode: ScanMode
   rulesVersion: string
@@ -27,6 +28,7 @@ export function createScanSession(
     sessionId: randomUUID(),
     createdAt: Date.now(),
     expiresAt: Date.now() + SESSION_TTL_MS,
+    revision: 0,
     drive,
     mode,
     rulesVersion,
@@ -45,6 +47,26 @@ export function getScanSession(sessionId: string): ScanSession | null {
   return activeSession
 }
 
+export function getActiveScanSessionInfo(): {
+  sessionId: string
+  fingerprint: string
+  drive: string
+  candidateCount: number
+  revision: number
+} | null {
+  if (!activeSession || Date.now() > activeSession.expiresAt) {
+    activeSession = null
+    return null
+  }
+  return {
+    sessionId: activeSession.sessionId,
+    fingerprint: `${activeSession.sessionId}:${activeSession.createdAt}:${activeSession.revision}`,
+    drive: activeSession.drive,
+    candidateCount: activeSession.candidates.size,
+    revision: activeSession.revision
+  }
+}
+
 export function clearScanSession(): void {
   activeSession = null
 }
@@ -56,5 +78,6 @@ export function updateScanSessionCandidates(sessionId: string, candidates: ScanC
     return false
   }
   activeSession.candidates = new Map(candidates.map((candidate) => [candidate.id, candidate]))
+  activeSession.revision += 1
   return true
 }

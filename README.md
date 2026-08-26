@@ -10,7 +10,7 @@ Windows 磁盘空间分析 + 安全清理桌面工具。
 
 | | 说明 |
 |---|------|
-| **当前版本（v0.1，规则 + 单轮 Agent）** | Electron 应用：统一扫描、Candidate 判断模型、**扫描完成后可选单轮 Agent 分析建议**（需自备 API Key）、三档风险展示、清理计划校验后移入回收站。 |
+| **当前版本（v0.1，规则 + 单轮 Agent + 规则草稿）** | Electron 应用：统一扫描、Candidate 判断模型、**扫描完成后可选单轮 Agent 分析建议**（需自备 API Key）、**规则四层架构与 RuleDraft 草稿审阅**、三档风险展示、清理计划校验后移入回收站。 |
 | **已确认的目标方向** | **Agent 驱动的统一扫描与清理流程**——空间发现 → Agent 调查与建议 → 用户确认 → 本地安全执行。详见 [Agent 产品方案](docs/PRODUCT-AGENT-DESIGN.md) 与 [开发路线图](docs/AGENT-ROADMAP.md)。 |
 
 请勿将路线图中的目标能力理解为「当前已可用」。文档与代码不一致时，以 **代码与下方「当前功能」** 为准。
@@ -74,6 +74,7 @@ npm start          # 构建并打开 App
 - 外观主题：浅色 / 深色 / 跟随系统
 - **模型连接**（阶段 3）：Provider 预设、Base URL、模型、API Key（加密）、连接/能力测试
 - **单轮 Agent 分析**（阶段 4）：扫描完成后主进程脱敏摘要 → 模型建议 → 写回 Candidate；无 Key 时降级为纯本地发现
+- **阶段 4.1（已完成）**：规则四层 + 扩展规则闭环；**本地规则授权清理，Agent 仅复核/降级**；扫描与 Agent 为同一任务阶段；详见 [PHASE-4.1-REPORT.md](docs/PHASE-4.1-REPORT.md)
 - 扫描规则：启用/禁用、分类筛选、导入 JSON、恢复默认
 - 用户配置：`%APPDATA%/disk-clean/config/user-rules.json`
 - 模型配置：`%APPDATA%/disk-clean/config/provider-config.json`（Key 为密文）
@@ -115,7 +116,7 @@ npm start          # 构建并打开 App
                      Cleaner（回收站）
 ```
 
-> `DiskAnalyzer` 产出 **待判断（pending）** 的 Candidate，仅展示空间占用，不可勾选。`RuleScanner` 产出 legacy 规则候选项（`suggested` / `caution`），仍由 `SafetyValidator` 按规则授权。同路径时合并双方证据。
+> `DiskAnalyzer` 扫描中产出 **正在识别（identifying）** 的 Candidate，本地规则整理后转为最终分类；未获规则授权的空间项不可勾选。`RuleScanner` 产出 legacy 规则候选项（`suggested` / `caution`），仍由 `SafetyValidator` 按规则授权。同路径时合并双方证据。Agent 可复核但不可扩大清理权限。
 
 ### 架构铁律
 

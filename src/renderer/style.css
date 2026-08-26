@@ -423,10 +423,61 @@ input:focus-visible,
 #panel-clean > .panel-header,
 #panel-clean > .summary,
 #panel-clean > .progress,
+#panel-clean > .rule-extension-card,
 #panel-clean > .agent-analysis-banner,
 #panel-clean > .categories,
 #panel-clean > .footer {
   flex: 0 0 auto;
+}
+
+#panel-clean > .rule-extension-card[hidden],
+.agent-analysis-banner[hidden] {
+  display: none !important;
+}
+
+.rule-draft-actions {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.rule-draft-actions-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rule-draft-action-status {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.safety-policy-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.rule-draft-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rule-draft-actions .btn-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 8px;
 }
 
 .agent-analysis-banner {
@@ -1185,7 +1236,114 @@ input:focus-visible,
 .judgment-caution { background: rgba(217, 119, 6, 0.12); color: var(--recommended, #d97706); }
 .judgment-pending { background: rgba(100, 116, 139, 0.12); color: var(--text-muted, #64748b); }
 .judgment-keep { background: rgba(220, 38, 38, 0.1); color: var(--dangerous); }
-.judgment-uncertain { background: rgba(124, 58, 237, 0.12); color: #7c3aed; }
+.judgment-identifying { background: rgba(59, 130, 246, 0.12); color: #2563eb; }
+.judgment-origin-badge {
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--text-muted, #64748b);
+}
+.draft-status-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.draft-badge-pending { background: rgba(217, 119, 6, 0.15); color: #d97706; }
+.draft-badge-enabled { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.draft-badge-disabled { background: rgba(100, 116, 139, 0.15); color: #64748b; }
+
+.rule-post-enable {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(22, 163, 74, 0.25);
+  border-radius: 8px;
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.rule-post-enable-message {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+}
+
+.rule-post-enable-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-pack-details {
+  margin-top: 8px;
+}
+
+.rule-pack-details > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rule-pack-rules {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-pack-rule-card {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-elevated, rgba(0, 0, 0, 0.03));
+}
+.scanning-discoveries-hint { color: var(--text-muted); font-size: 0.85rem; margin: 0 0 12px; }
+
+.rule-extension-card {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.rule-extension-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.rule-extension-desc {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.rule-extension-selection-count {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.rule-extension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-extension-entry-host {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--border));
+}
+
+.rule-extension-entry-desc {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.scan-task-status { font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0; }
 
 .item-not-selectable {
   color: var(--text-muted, #64748b);

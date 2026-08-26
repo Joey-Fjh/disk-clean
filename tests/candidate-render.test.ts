@@ -103,12 +103,12 @@ describe('buildScanItemRenderInput', () => {
     expect(input.evidenceItems?.find((e) => e.source === 'space-scan')?.summary).toContain('不完整')
   })
 
-  it('shows space discovery source for pure pending items', () => {
+  it('shows identifying state for pure space discovery items', () => {
     const pending = legacyAnalyzer({ path: 'C:\\Users', size: 50 * MB })
 
     const input = buildScanItemRenderInput(pending, { contentTypeLabel: '大型目录' })
 
-    expect(input.typeLabel).toContain('空间发现')
+    expect(input.typeLabel).toContain('正在识别')
     expect(input.sizeCaption).toBe('空间占用估算')
     expect(input.evidenceItems?.some((e) => e.source === 'space-scan')).toBe(true)
     expect(input.evidenceItems?.[0]?.sourceLabel).toBe('空间发现')

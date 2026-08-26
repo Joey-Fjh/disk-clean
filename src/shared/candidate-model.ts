@@ -11,10 +11,17 @@ import type {
   SuggestedAction
 } from './types'
 import { normalizeScanPath } from './scan-path'
+import {
+  hasLocalCleanupAuthorization,
+  mergeAgentReviewIntoJudgment,
+  resolveLocalJudgment
+} from './candidate-judgment'
 import { formatBytes } from './format-bytes'
 
 const PENDING_REASON =
   '当前版本尚未启用智能判断，仅展示空间占用'
+
+const IDENTIFYING_REASON = '正在识别，请等待扫描与本地规则整理完成'
 
 export const ANALYZER_ONLY_AGENT_ADVICE_REASON =
   'Agent 已提供分析建议；当前条目仅供参考，尚未获得清理授权。'
@@ -33,8 +40,9 @@ export function judgmentStatusFromLegacyCategory(category: Category): JudgmentSt
 }
 
 export function legacyCategoryFromJudgment(status: JudgmentStatus): Category {
+  if (status === 'identifying' || status === 'pending') return 'dangerous'
   if (status === 'suggested') return 'safe'
-  if (status === 'caution') return 'recommended'
+  if (status === 'caution' || status === 'uncertain') return 'recommended'
   return 'dangerous'
 }
 
@@ -131,6 +139,16 @@ function deriveJudgmentFromLegacyRuleItem(item: ScanItem): CandidateJudgment {
   }
 }
 
+function deriveIdentifyingJudgment(item: ScanItem): CandidateJudgment {
+  return {
+    status: 'identifying',
+    source: 'none',
+    confidence: 'unknown',
+    basis: [item.reason ?? '空间扫描发现占用'],
+    judgmentOrigin: 'space-evidence-only'
+  }
+}
+
 function derivePendingJudgment(item: ScanItem): CandidateJudgment {
   return {
     status: 'pending',
@@ -141,14 +159,32 @@ function derivePendingJudgment(item: ScanItem): CandidateJudgment {
 }
 
 export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): CandidateSelection {
+  if (judgment.status === 'identifying') {
+    return { selectable: false, notSelectableReason: IDENTIFYING_REASON }
+  }
   if (judgment.status === 'pending') {
     return { selectable: false, notSelectableReason: PENDING_REASON }
+  }
+  if (judgment.judgmentOrigin === 'protected-policy' || judgment.judgmentOrigin === 'agent-advice-only') {
+    return {
+      selectable: false,
+      notSelectableReason:
+        judgment.judgmentOrigin === 'protected-policy'
+          ? '命中受保护路径，禁止清理'
+          : ANALYZER_ONLY_AGENT_ADVICE_REASON
+    }
   }
   if (isAnalyzerOnlyItem(item) && judgment.source === 'agent') {
     return { selectable: false, notSelectableReason: ANALYZER_ONLY_AGENT_ADVICE_REASON }
   }
   if (judgment.status === 'uncertain') {
     return { selectable: false, notSelectableReason: '信息不足，无法确定是否可清理' }
+  }
+  if (judgment.agentVerdict === 'uncertain') {
+    return { selectable: false, notSelectableReason: 'Agent 复核后建议谨慎处理，不默认勾选' }
+  }
+  if (judgment.status === 'caution' && judgment.judgmentOrigin === 'space-evidence-only') {
+    return { selectable: false, notSelectableReason: PENDING_REASON }
   }
   if (judgment.status === 'keep') {
     return { selectable: false, notSelectableReason: item.impact ?? '建议保留，不建议清理' }
@@ -164,10 +200,13 @@ export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): Ca
 
 export function deriveSuggestedAction(item: ScanItem, judgment: CandidateJudgment): SuggestedAction {
   if (
-    !item.deletable ||
+    judgment.status === 'identifying' ||
     judgment.status === 'pending' ||
+    !item.deletable ||
     judgment.status === 'keep' ||
     judgment.status === 'uncertain' ||
+    judgment.judgmentOrigin === 'protected-policy' ||
+    judgment.judgmentOrigin === 'agent-advice-only' ||
     (isRuleBacked(item) && !item.snapshotComplete)
   ) {
     return 'none'
@@ -176,7 +215,7 @@ export function deriveSuggestedAction(item: ScanItem, judgment: CandidateJudgmen
 }
 
 export function mapSpaceScanItem(item: ScanItem): ScanItem {
-  const judgment = derivePendingJudgment(item)
+  const judgment = deriveIdentifyingJudgment(item)
   const discoverySources: DiscoverySource[] = ['space-scan']
   const selection = deriveSelection({ ...item, deletable: false }, judgment)
 
@@ -195,13 +234,14 @@ export function mapSpaceScanItem(item: ScanItem): ScanItem {
 }
 
 export function mapRuleScanItem(item: ScanItem): ScanItem {
+  const local = resolveLocalJudgment(item, false)
   return normalizeCandidate({
     ...item,
     source: 'rule',
     discoverySources: ['rule'],
     evidence: [],
-    judgment: deriveJudgmentFromLegacyRuleItem(item),
-    category: legacyCategoryFromJudgment(judgmentStatusFromLegacyCategory(item.category))
+    judgment: local,
+    category: legacyCategoryFromJudgment(local.status)
   })
 }
 
@@ -284,27 +324,28 @@ export function mergeScanCandidates(existing: ScanItem, incoming: ScanItem): Sca
       spaceOnlyItem ? occupancyObservationFromSpaceItem(spaceOnlyItem) : undefined
     )
 
-    const merged = normalizeCandidate({
+    return normalizeCandidate({
       ...ruleItem,
       path: ruleItem.path,
       discoverySources,
       evidence,
       occupancyObservation,
-      judgment: deriveJudgmentFromLegacyRuleItem(ruleItem),
+      judgment: resolveLocalJudgment(ruleItem, false),
       reason: ruleItem.reason ?? left.reason ?? right.reason,
       impact: ruleItem.impact ?? left.impact ?? right.impact,
       description: ruleItem.description ?? left.description ?? right.description,
       parentTarget: ruleItem.parentTarget ?? left.parentTarget ?? right.parentTarget
     })
-    return merged
   }
 
   const spaceItem = spaceOnlyItem ?? right
   return normalizeCandidate({
     ...spaceItem,
+    id: left.id,
+    path: left.path,
     discoverySources,
     evidence,
-    judgment: derivePendingJudgment(spaceItem),
+    judgment: deriveIdentifyingJudgment(spaceItem),
     deletable: false
   })
 }
@@ -319,6 +360,8 @@ function mergeOccupancyObservation(
 
 export function getJudgmentStatusLabel(status: JudgmentStatus): string {
   switch (status) {
+    case 'identifying':
+      return '正在识别'
     case 'pending':
       return '待判断'
     case 'suggested':
@@ -332,6 +375,31 @@ export function getJudgmentStatusLabel(status: JudgmentStatus): string {
     default:
       return status
   }
+}
+
+export function applyAgentJudgmentToItem(
+  item: ScanItem,
+  agent: { verdict: import('./agent-types').AgentVerdict; confidence: ConfidenceLevel; basis: string[] },
+  protectedPath = false
+): ScanItem {
+  const localJudgment = resolveLocalJudgment(item, protectedPath)
+  const judgment = mergeAgentReviewIntoJudgment(item, localJudgment, agent, protectedPath)
+  const preservedDeletable =
+    judgment.judgmentOrigin === 'protected-policy' ||
+    judgment.judgmentOrigin === 'agent-advice-only' ||
+    judgment.status === 'keep' ||
+    judgment.agentVerdict === 'keep' ||
+    judgment.agentVerdict === 'uncertain'
+      ? false
+      : hasLocalCleanupAuthorization(item)
+        ? item.deletable
+        : false
+
+  return normalizeCandidate({
+    ...item,
+    deletable: preservedDeletable,
+    judgment
+  })
 }
 
 export function isCandidateEquivalent(a: ScanItem, b: ScanItem): boolean {

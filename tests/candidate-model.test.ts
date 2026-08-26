@@ -78,15 +78,15 @@ function mergePair(analyzer: ScanItem, rule: ScanItem): ScanItem {
 }
 
 describe('candidate model', () => {
-  it('maps analyzer items to pending candidates that are not selectable', () => {
+  it('maps analyzer items to identifying candidates that are not selectable', () => {
     const item = legacyAnalyzer({ path: 'C:\\Users', size: 50_000 })
 
-    expect(item.judgment.status).toBe('pending')
+    expect(item.judgment.status).toBe('identifying')
     expect(item.selection.selectable).toBe(false)
-    expect(item.selection.notSelectableReason).toContain('尚未启用智能判断')
+    expect(item.selection.notSelectableReason).toContain('正在识别')
     expect(item.deletable).toBe(false)
     expect(item.discoverySources).toEqual(['space-scan'])
-    expect(getJudgmentStatusLabel(item.judgment.status)).toBe('待判断')
+    expect(getJudgmentStatusLabel(item.judgment.status)).toBe('正在识别')
     expect(item.occupancyObservation?.size).toBe(50_000)
   })
 

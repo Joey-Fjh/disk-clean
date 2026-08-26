@@ -28,7 +28,7 @@ export function upsertScanItems(existing: ScanItem[], incoming: ScanItem[]): Ups
 
   const byPath = new Map<string, ScanItem>()
   for (const item of existing) {
-    byPath.set(normalizeScanPath(item.path), normalizeCandidate(item))
+    byPath.set(normalizeScanPath(item.path), prepareIncomingItem(item))
   }
 
   const upserted: ScanItem[] = []

@@ -92,8 +92,12 @@ describe('agent ipc security', () => {
 
   it('only accepts sessionId in analyze request contract', () => {
     const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf-8')
-    expect(preload).toContain("invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request)")
-    expect(preload).not.toContain('candidateIds')
+    const analyzeBlock = preload.slice(
+      preload.indexOf("invokeAgentIpc<AgentAnalyzeResult>('agent:analyze'"),
+      preload.indexOf('generateRuleDraft')
+    )
+    expect(analyzeBlock).toContain("invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request)")
+    expect(analyzeBlock).not.toContain('candidateIds')
     expect(preload).not.toContain('apiKey')
   })
 

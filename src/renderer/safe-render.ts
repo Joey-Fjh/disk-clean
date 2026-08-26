@@ -16,6 +16,11 @@ export interface ScanItemRenderInput {
   impact?: string
   judgmentLabel?: string
   judgmentClass?: string
+  originLabel?: string
+  cleanupEligibility?: string
+  agentReviewSummary?: string
+  safetyCheckSummary?: string
+  impactSummary?: string
   notSelectableReason?: string
   agentLikelyContent?: string
   agentReason?: string
@@ -36,6 +41,7 @@ export function createScanItemElement(input: ScanItemRenderInput): HTMLLIElement
 
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
+  checkbox.dataset.role = 'cleanup'
 
   const info = document.createElement('div')
   info.className = 'item-info'
@@ -48,6 +54,13 @@ export function createScanItemElement(input: ScanItemRenderInput): HTMLLIElement
   nameEl.textContent = input.fileName
 
   nameRow.appendChild(nameEl)
+
+  if (input.originLabel) {
+    const origin = document.createElement('span')
+    origin.className = 'judgment-origin-badge'
+    origin.textContent = input.originLabel
+    nameRow.appendChild(origin)
+  }
 
   if (input.judgmentLabel) {
     const badge = document.createElement('span')
@@ -73,6 +86,23 @@ export function createScanItemElement(input: ScanItemRenderInput): HTMLLIElement
     reasonEl.className = 'item-desc'
     reasonEl.textContent = input.reason
     info.appendChild(reasonEl)
+  }
+
+  const summaryBlock = document.createElement('div')
+  summaryBlock.className = 'item-judgment-summary'
+  for (const line of [
+    input.cleanupEligibility,
+    input.agentReviewSummary,
+    input.safetyCheckSummary,
+    input.impactSummary
+  ].filter(Boolean) as string[]) {
+    const row = document.createElement('div')
+    row.className = 'item-desc'
+    row.textContent = line
+    summaryBlock.appendChild(row)
+  }
+  if (summaryBlock.childElementCount > 0) {
+    info.appendChild(summaryBlock)
   }
 
   if (input.agentLikelyContent) {

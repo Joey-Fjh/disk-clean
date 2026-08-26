@@ -13,12 +13,16 @@ import {
   importCustomRules,
   resetUserRules
 } from './rules'
+import { importRuleDraftFromJson } from './rules/rule-layer-service'
 import type { RuleConfig, ScanProgress, ScanRequest } from '../shared/types'
 import { MAX_CANDIDATE_ID_LENGTH, MAX_CLEANUP_CANDIDATE_IDS } from '../shared/cleanup-limits'
 import { listAvailableDrives, getSystemDrive } from '../shared/system-paths'
 import { registerProviderIpc } from './provider/provider-ipc'
 import { registerAgentIpc } from './agent/agent-ipc'
-import { hardenMainWindow, setMainWindow } from './window-security'
+import { registerRuleLayerIpc } from './rules/rule-layer-ipc'
+import { hardenMainWindow, isTrustedMainWindowSender, setMainWindow } from './window-security'
+import { RULE_DRAFT_LIMITS } from '../shared/rule-draft-limits'
+import { assertImportJsonSize } from './rules/rule-store-sanitizer'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -122,6 +126,7 @@ app.whenReady().then(() => {
   app.setName('Disk Clean')
   registerProviderIpc()
   registerAgentIpc()
+  registerRuleLayerIpc()
   void createWindow()
 
   app.on('activate', () => {
@@ -183,36 +188,48 @@ ipcMain.handle('path:open', async (_event, targetPath: string) => {
   await openInExplorer(targetPath)
 })
 
-ipcMain.handle('rules:list', () => getAllRulesWithMeta())
+ipcMain.handle('rules:list', (event) => {
+  if (!isTrustedMainWindowSender(event.sender)) throw new Error('未授权的规则请求')
+  return getAllRulesWithMeta()
+})
 
-ipcMain.handle('rules:setEnabled', (_event, ruleId: string, enabled: boolean) => {
+ipcMain.handle('rules:setEnabled', (event, ruleId: string, enabled: boolean) => {
+  if (!isTrustedMainWindowSender(event.sender)) throw new Error('未授权的规则请求')
   setRuleEnabled(ruleId, enabled)
   return getAllRulesWithMeta()
 })
 
-ipcMain.handle('rules:remove', (_event, ruleId: string) => {
+ipcMain.handle('rules:remove', (event, ruleId: string) => {
+  if (!isTrustedMainWindowSender(event.sender)) throw new Error('未授权的规则请求')
   const removed = removeCustomRule(ruleId)
   return { removed, rules: getAllRulesWithMeta() }
 })
 
-ipcMain.handle('rules:reset', () => {
+ipcMain.handle('rules:reset', (event) => {
+  if (!isTrustedMainWindowSender(event.sender)) throw new Error('未授权的规则请求')
   resetUserRules()
   return getAllRulesWithMeta()
 })
 
-ipcMain.handle('rules:import', async () => {
+ipcMain.handle('rules:import', async (event) => {
+  if (!isTrustedMainWindowSender(event.sender)) throw new Error('未授权的规则请求')
   const result = await dialog.showOpenDialog({
-    title: '导入规则 JSON',
+    title: '导入规则草稿 JSON',
     filters: [{ name: 'JSON', extensions: ['json'] }],
     properties: ['openFile']
   })
   if (result.canceled || !result.filePaths[0]) {
-    return { imported: 0, rules: getAllRulesWithMeta() }
+    return { imported: 0, rules: getAllRulesWithMeta(), draftOnly: true }
   }
 
   const raw = readFileSync(result.filePaths[0], 'utf-8')
-  const parsed = JSON.parse(raw) as { rules?: RuleConfig[] } | RuleConfig[]
-  const rules = Array.isArray(parsed) ? parsed : parsed.rules ?? []
+  assertImportJsonSize(raw, RULE_DRAFT_LIMITS.MAX_DRAFT_JSON_BYTES)
+  const parsed = JSON.parse(raw) as { rules?: RuleConfig[] } | RuleConfig[] | Record<string, unknown>
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'schemaVersion' in parsed) {
+    importRuleDraftFromJson(parsed, raw)
+    return { imported: 1, rules: getAllRulesWithMeta(), draftOnly: true }
+  }
+  const rules = Array.isArray(parsed) ? parsed : (parsed as { rules?: unknown[] }).rules ?? []
   const imported = importCustomRules(rules)
-  return { imported, rules: getAllRulesWithMeta() }
+  return { imported, rules: getAllRulesWithMeta(), draftOnly: true }
 })

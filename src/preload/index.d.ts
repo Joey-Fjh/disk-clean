@@ -5,6 +5,13 @@ import type {
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
 import type {
+  AgentGenerateRuleDraftRequest,
+  AgentGenerateRuleDraftResult,
+  CoreSafetyPolicy,
+  RuleDraftPreviewResult,
+  StoredRuleDraft
+} from '../shared/rule-layer-types'
+import type {
   CleanupRequest,
   CleanupResult,
   RuleWithMeta,
@@ -25,7 +32,7 @@ export interface DiskCleanAPI {
   setRuleEnabled: (ruleId: string, enabled: boolean) => Promise<RuleWithMeta[]>
   removeRule: (ruleId: string) => Promise<{ removed: boolean; rules: RuleWithMeta[] }>
   resetRules: () => Promise<RuleWithMeta[]>
-  importRules: () => Promise<{ imported: number; rules: RuleWithMeta[] }>
+  importRules: () => Promise<{ imported: number; rules: RuleWithMeta[]; draftOnly?: boolean }>
   openInExplorer: (targetPath: string) => Promise<void>
   getProviderConfig: () => Promise<ProviderConfigPublic | null>
   saveProviderConfig: (input: SaveProviderConfigInput) => Promise<ProviderConfigPublic>
@@ -33,6 +40,37 @@ export interface DiskCleanAPI {
   testProviderConnection: () => Promise<ProviderTestResult>
   testProviderCapability: () => Promise<ProviderTestResult>
   analyzeScan: (request: AgentAnalyzeRequest) => Promise<AgentAnalyzeResult>
+  generateRuleDraft: (request: AgentGenerateRuleDraftRequest) => Promise<AgentGenerateRuleDraftResult>
+  cancelRuleDraft: () => Promise<boolean>
+  listRulePacks: () => Promise<
+    Array<import('../shared/rule-layer-types').RulePackManifest & { enabled: boolean; ruleCount: number }>
+  >
+  setRulePackEnabled: (packId: string, enabled: boolean) => Promise<boolean>
+  listRuleDrafts: () => Promise<StoredRuleDraft[]>
+  previewRuleDraft: (draftId: string, sessionId?: string) => Promise<RuleDraftPreviewResult>
+  approveRuleDraft: (
+    draftId: string
+  ) => Promise<{ ok: boolean; message: string; draft?: StoredRuleDraft }>
+  confirmEnableRuleDraft: (
+    draftId: string
+  ) => Promise<{ ok: boolean; message: string; code?: string; draft?: StoredRuleDraft }>
+  enableRuleDraft: (draftId: string) => Promise<{ ok: boolean; message: string; code?: string }>
+  disableRuleDraft: (draftId: string) => Promise<boolean>
+  rejectRuleDraft: (draftId: string) => Promise<boolean>
+  deleteRuleDraft: (draftId: string) => Promise<boolean>
+  importRuleDraft: () => Promise<{ imported: boolean; draft: StoredRuleDraft | null }>
+  exportRuleWritingPack: (input: {
+    sessionId: string
+    candidateIds?: string[]
+  }) => Promise<{ exported: boolean }>
+  getSafetyPolicy: () => Promise<CoreSafetyPolicy>
+  getActiveScanSession: () => Promise<{
+    sessionId: string
+    fingerprint: string
+    drive: string
+    candidateCount: number
+    revision: number
+  } | null>
 }
 
 declare global {

@@ -6,6 +6,7 @@ import { shouldAutoSelect } from '../../shared/candidate-policy'
 import { expandEnvVars, getDriveLetter, isProtectedPath, matchesDriveFilter } from '../../shared/path-utils'
 import { collectRuleTargets } from '../../shared/rule-match'
 import { getActiveRulesWithMeta, getProtectedPaths } from '../rules'
+import { enforceDraftRuleTargetLimit } from '../rules/rule-draft-scope'
 import { isScanCancelled, yieldToEventLoop } from './scan-controller'
 import { measurePathSizeDetailed } from './measure-size'
 
@@ -201,13 +202,22 @@ async function scanRule(
 ): Promise<ScanItem[]> {
   const items: ScanItem[] = []
   const targets = await collectRuleTargets(rule)
+  const limited = enforceDraftRuleTargetLimit(rule, targets.length)
+  const effectiveRule = limited.rule
+  if (limited.downgraded && limited.message) {
+    errors.push({
+      ruleId: rule.id,
+      path: rule.paths.join(';'),
+      message: limited.message
+    })
+  }
 
   for (const targetPath of targets) {
     if (isScanCancelled()) break
     if (!matchesDriveFilter(targetPath, driveFilter)) continue
 
     try {
-      const targetItems = await scanTarget(rule, targetPath, protectedPaths)
+      const targetItems = await scanTarget(effectiveRule, targetPath, protectedPaths)
       for (const item of targetItems) {
         if (!matchesDriveFilter(item.path, driveFilter)) continue
         items.push(item)

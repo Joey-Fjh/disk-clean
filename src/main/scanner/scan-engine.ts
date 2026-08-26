@@ -6,7 +6,15 @@ import { upsertScanItems } from '../../shared/scan-item-accumulator'
 import { beginScanSession, endScanSession, isScanCancelled } from './scan-controller'
 import { createScanSession } from '../scan/scan-session-store'
 import { markAgentScanStarting, notifyNewScanSession } from '../agent/agent-service'
-import { getAllRulesWithMeta } from '../rules'
+import {
+  markRuleDraftScanStarting,
+  notifyRuleDraftNewScanSession
+} from '../rules/rule-draft-agent-service'
+import { enrichItemsWithDetectionHeuristics } from '../rules/heuristic-enricher'
+import { getAllRulesWithMeta, getProtectedPaths } from '../rules'
+import { normalizeCandidate } from '../../shared/candidate-model'
+import { finalizeLocalScanItem } from '../../shared/candidate-judgment'
+import { isProtectedPath } from '../../shared/path-utils'
 
 type ProgressCallback = (progress: ScanProgress) => void
 type ItemsCallback = (items: ScanItem[]) => void
@@ -15,6 +23,20 @@ function getRulesVersion(): string {
   return getAllRulesWithMeta()
     .map((r) => `${r.id}:${r.enabled ? 1 : 0}`)
     .join('|')
+}
+
+export function finalizeLocalScanItems(items: ScanItem[], protectedPaths: string[]): ScanItem[] {
+  return items.map((item) => {
+    const normalized = normalizeCandidate(item)
+    const protectedPath = isProtectedPath(normalized.path, protectedPaths)
+    if (protectedPath) {
+      return normalizeCandidate(finalizeLocalScanItem(normalized, true))
+    }
+    if (normalized.judgment.status !== 'identifying' && normalized.judgment.status !== 'pending') {
+      return normalized
+    }
+    return normalizeCandidate(finalizeLocalScanItem(normalized, false))
+  })
 }
 
 async function runLegacyScan(
@@ -97,6 +119,7 @@ export async function runScan(
 ): Promise<ScanResult> {
   beginScanSession()
   markAgentScanStarting()
+  markRuleDraftScanStarting()
   const drive = request.drive ?? 'all'
   const mode = request.mode ?? 'combined'
 
@@ -106,14 +129,19 @@ export async function runScan(
         ? await runCombinedScan(drive, onProgress, onItems)
         : await runLegacyScan(mode, drive, onProgress, onItems)
 
-    const session = createScanSession(drive, mode, getRulesVersion(), result.items)
+    const enrichedItems = finalizeLocalScanItems(
+      enrichItemsWithDetectionHeuristics(result.items),
+      getProtectedPaths()
+    )
+    const session = createScanSession(drive, mode, getRulesVersion(), enrichedItems)
     notifyNewScanSession(session.sessionId)
+    notifyRuleDraftNewScanSession(session.sessionId)
 
     return {
       sessionId: session.sessionId,
       drive,
       mode,
-      items: result.items,
+      items: enrichedItems,
       errors: result.errors,
       cancelled: result.cancelled,
       totalSize: computeDeletableTotalSize(result.items),

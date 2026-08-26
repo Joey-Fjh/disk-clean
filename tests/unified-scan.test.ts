@@ -16,7 +16,8 @@ vi.mock('../src/main/scanner/rule-scanner', () => ({
 }))
 
 vi.mock('../src/main/rules', () => ({
-  getAllRulesWithMeta: () => getAllRulesWithMeta()
+  getAllRulesWithMeta: () => getAllRulesWithMeta(),
+  getProtectedPaths: () => []
 }))
 
 import { runScan } from '../src/main/scanner/scan-engine'
@@ -201,7 +202,7 @@ describe('unified scan orchestration', () => {
     const mergedA = live.find((entry) => entry.path === 'C:\\A')
     expect(mergedA?.source).toBe('rule')
     expect(mergedA?.discoverySources).toEqual(expect.arrayContaining(['space-scan', 'rule']))
-    expect(live.find((entry) => entry.path === 'C:\\B')?.judgment?.status).toBe('pending')
+    expect(live.find((entry) => entry.path === 'C:\\B')?.judgment?.status).toBe('identifying')
     expect(result.items.map((entry) => entry.path).sort()).toEqual(live.map((entry) => entry.path).sort())
     expect(computeDeletableTotalSize(live)).toBe(computeDeletableTotalSize(result.items))
   })
