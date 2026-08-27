@@ -10,20 +10,29 @@ import { getProviderConfig, requireRunnableConfig } from '../provider/provider-s
 import { applyAgentRecommendations } from './agent-candidate-mapper'
 import { AgentError } from './agent-errors'
 import { getAgentAnalysisState } from './agent-analysis-state'
+import { onNewScanSession, onScanSessionRevisionChanged } from './investigation/investigation-service'
+import { getInvestigationRuntime } from './investigation/investigation-runtime'
+import { getActiveScanSessionInfo } from '../scan/scan-session-store'
 import { buildAgentMessages } from './agent-prompt'
 import { filterRecommendationsByRefs, parseAgentModelResponse } from './agent-response'
 import { extractUserName } from './path-sanitize'
 
 export function notifyNewScanSession(sessionId: string): void {
   getAgentAnalysisState().markNewScanSession(sessionId)
+  const info = getActiveScanSessionInfo()
+  if (info?.sessionId === sessionId) {
+    onNewScanSession(info.fingerprint)
+  }
 }
 
 export function markAgentScanStarting(): void {
   getAgentAnalysisState().markScanStarting()
+  getInvestigationRuntime().markStale()
 }
 
 export function cancelAgentAnalysis(): void {
   getAgentAnalysisState().cancelActiveRun('cancelled')
+  getInvestigationRuntime().cancelActive()
 }
 
 function buildSkippedResult(sessionId: string): AgentAnalyzeResult {
@@ -127,6 +136,7 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
     }
 
     updateScanSessionCandidates(sessionId, updatedItems)
+    onScanSessionRevisionChanged()
     state.markCompleted(sessionId)
 
     const analysis: AgentAnalysisPublic = {

@@ -305,7 +305,21 @@ config/
 
 ---
 
-## 跨机器
+## 阶段 5A：只读调查基础设施（2026-08-27，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 工具执行 | 仅主进程；白名单 `list_children` / `summarize_directory` / `sample_entry_names` |
+| IPC 输入 | 仅 `sessionId`、`candidateRef`、受限 `relativePath` / `limit` / `depth` |
+| 路径安全 | 候选根内 `realpath` 校验；拒绝 protected、symlink/junction、穿越 |
+| 会话 | 复用 `ScanSession` + fingerprint；不新建平行会话存储 |
+| 缓存 | 工具结果按 fingerprint 隔离；切换模型复用数据、不复用结论 |
+| Agent 权限 | 调查不改变 `selectable` / `deletable`；清理授权仍由本地规则决定 |
+| UI | 本轮仅最小状态标签；完整时间线留 5B |
+
+详见 [INVESTIGATION-TOOLS.md](./INVESTIGATION-TOOLS.md)、[PHASE-5A-REPORT.md](./PHASE-5A-REPORT.md)。
+
+---
 
 ```powershell
 git clone https://github.com/Joey-Fjh/disk-clean.git

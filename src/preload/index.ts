@@ -7,6 +7,11 @@ import type {
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
 import type {
+  InvestigationExecuteToolResult,
+  InvestigationPublicStatus,
+  InvestigationToolRequest
+} from '../shared/investigation-types'
+import type {
   AgentGenerateRuleDraftRequest,
   AgentGenerateRuleDraftResult,
   CoreSafetyPolicy,
@@ -104,6 +109,16 @@ contextBridge.exposeInMainWorld('diskClean', {
     invokeProviderIpc<ProviderTestResult>('provider:testCapability'),
   analyzeScan: (request: AgentAnalyzeRequest): Promise<AgentAnalyzeResult> =>
     invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request),
+  getInvestigationStatus: (sessionId: string): Promise<InvestigationPublicStatus> =>
+    invokeAgentIpc<InvestigationPublicStatus>('agent:investigation-status', { sessionId }),
+  startInvestigation: (sessionId: string): Promise<InvestigationPublicStatus> =>
+    invokeAgentIpc<InvestigationPublicStatus>('agent:investigation-start', { sessionId }),
+  cancelInvestigation: (sessionId: string): Promise<InvestigationPublicStatus> =>
+    invokeAgentIpc<InvestigationPublicStatus>('agent:investigation-cancel', { sessionId }),
+  executeInvestigationTool: (
+    request: InvestigationToolRequest
+  ): Promise<InvestigationExecuteToolResult> =>
+    invokeAgentIpc<InvestigationExecuteToolResult>('agent:investigation-execute-tool', request),
   generateRuleDraft: (request: AgentGenerateRuleDraftRequest): Promise<AgentGenerateRuleDraftResult> =>
     invokeAgentIpc<AgentGenerateRuleDraftResult>('agent:generate-rule-draft', request),
   cancelRuleDraft: (): Promise<boolean> => invokeAgentIpc<boolean>('agent:cancel-rule-draft'),

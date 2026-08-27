@@ -79,9 +79,11 @@ npm start          # 构建并打开 App
 - 用户配置：`%APPDATA%/disk-clean/config/user-rules.json`
 - 模型配置：`%APPDATA%/disk-clean/config/provider-config.json`（Key 为密文）
 
+- **阶段 5A（已完成）**：只读调查工具、路径安全、调查状态机与会话缓存；详见 [PHASE-5A-REPORT.md](docs/PHASE-5A-REPORT.md)、[INVESTIGATION-TOOLS.md](docs/INVESTIGATION-TOOLS.md)
+
 ### 尚未实现（目标方案，见路线图）
 
-- 多轮只读 Agent 调查（阶段 5）
+- 多轮模型编排与调查时间线 UI（阶段 5B）
 - 会话候选项授权模型（无 JSON 规则项的可执行路径，阶段 6）
 - JSON 定位为证据与经验层（非主要决策入口）
 - 过程可视化完整闭环（扫描 → Agent 调查 → 建议 → 确认 → 执行 → 重新扫描）

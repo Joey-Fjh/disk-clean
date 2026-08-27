@@ -5,6 +5,11 @@ import type {
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
 import type {
+  InvestigationExecuteToolResult,
+  InvestigationPublicStatus,
+  InvestigationToolRequest
+} from '../shared/investigation-types'
+import type {
   AgentGenerateRuleDraftRequest,
   AgentGenerateRuleDraftResult,
   CoreSafetyPolicy,
@@ -40,6 +45,10 @@ export interface DiskCleanAPI {
   testProviderConnection: () => Promise<ProviderTestResult>
   testProviderCapability: () => Promise<ProviderTestResult>
   analyzeScan: (request: AgentAnalyzeRequest) => Promise<AgentAnalyzeResult>
+  getInvestigationStatus: (sessionId: string) => Promise<InvestigationPublicStatus>
+  startInvestigation: (sessionId: string) => Promise<InvestigationPublicStatus>
+  cancelInvestigation: (sessionId: string) => Promise<InvestigationPublicStatus>
+  executeInvestigationTool: (request: InvestigationToolRequest) => Promise<InvestigationExecuteToolResult>
   generateRuleDraft: (request: AgentGenerateRuleDraftRequest) => Promise<AgentGenerateRuleDraftResult>
   cancelRuleDraft: () => Promise<boolean>
   listRulePacks: () => Promise<

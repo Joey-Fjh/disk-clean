@@ -19,6 +19,7 @@ import { MAX_CANDIDATE_ID_LENGTH, MAX_CLEANUP_CANDIDATE_IDS } from '../shared/cl
 import { listAvailableDrives, getSystemDrive } from '../shared/system-paths'
 import { registerProviderIpc } from './provider/provider-ipc'
 import { registerAgentIpc } from './agent/agent-ipc'
+import { registerInvestigationIpc } from './agent/investigation/investigation-ipc'
 import { registerRuleLayerIpc } from './rules/rule-layer-ipc'
 import { hardenMainWindow, isTrustedMainWindowSender, setMainWindow } from './window-security'
 import { RULE_DRAFT_LIMITS } from '../shared/rule-draft-limits'
@@ -126,6 +127,7 @@ app.whenReady().then(() => {
   app.setName('Disk Clean')
   registerProviderIpc()
   registerAgentIpc()
+  registerInvestigationIpc()
   registerRuleLayerIpc()
   void createWindow()
 

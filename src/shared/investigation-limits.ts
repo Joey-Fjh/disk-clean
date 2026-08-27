@@ -1,0 +1,31 @@
+/** 阶段 5A 只读调查资源预算（集中定义）。 */
+export const INVESTIGATION_LIMITS = {
+  MAX_ROUNDS: 6,
+  MAX_TOOL_CALLS_PER_ROUND: 4,
+  MAX_TOTAL_TOOL_CALLS: 16,
+  MAX_DIRECTORY_DEPTH: 3,
+  MAX_ENTRIES_PER_CALL: 80,
+  MAX_SAMPLE_NAMES: 12,
+  MAX_TRAVERSED_ENTRIES: 500,
+  MAX_TRAVERSED_DIRECTORIES: 120,
+  MAX_TOOL_RESPONSE_BYTES: 48 * 1024,
+  MAX_TOTAL_RESPONSE_BYTES: 256 * 1024,
+  MAX_CACHE_ENTRIES: 128,
+  MAX_CACHE_BYTES: 512 * 1024,
+  MAX_NAME_LENGTH: 128,
+  MAX_SESSION_ID_LENGTH: 128,
+  MAX_CANDIDATE_REF_LENGTH: 64,
+  MAX_RELATIVE_PATH_LENGTH: 512,
+  TOOL_TIMEOUT_MS: 8_000,
+  INVESTIGATION_TIMEOUT_MS: 120_000,
+  MAX_TERMINAL_HISTORY_ENTRIES: 32,
+  MAX_ABORT_REASON_HISTORY_ENTRIES: 64
+} as const
+
+export const INVESTIGATION_TOOL_NAMES = ['list_children', 'summarize_directory', 'sample_entry_names'] as const
+
+export type InvestigationToolName = (typeof INVESTIGATION_TOOL_NAMES)[number]
+
+export function isInvestigationToolName(value: string): value is InvestigationToolName {
+  return (INVESTIGATION_TOOL_NAMES as readonly string[]).includes(value)
+}
