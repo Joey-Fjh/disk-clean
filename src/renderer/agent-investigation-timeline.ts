@@ -2,6 +2,10 @@ import {
   MAX_INVESTIGATION_TIMELINE_ENTRIES,
   type InvestigationTimelineEvent
 } from '../shared/investigation-timeline-types'
+import {
+  hasTerminalInvestigationTimelineEvent,
+  resolveTimelineDisplayMessage
+} from './investigation-status'
 
 let activeGeneration: string | null = null
 let activeSessionId: string | null = null
@@ -17,10 +21,11 @@ function renderTimeline(): void {
   if (!container || !list) return
   container.hidden = events.length === 0
   list.replaceChildren()
+  const hasTerminalEvent = hasTerminalInvestigationTimelineEvent(events)
   for (const event of events) {
     const li = document.createElement('li')
     li.className = `agent-timeline-item agent-timeline-${event.type}`
-    li.textContent = event.message
+    li.textContent = resolveTimelineDisplayMessage(event, hasTerminalEvent)
     list.appendChild(li)
   }
 }

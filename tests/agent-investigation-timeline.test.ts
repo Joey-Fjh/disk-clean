@@ -127,6 +127,49 @@ describe('agent investigation timeline renderer', () => {
     expect(list.children.length).toBe(1)
   })
 
+  it('renders completed timeline steps in past tense', () => {
+    document.body.innerHTML = `
+      <div id="agent-investigation-timeline" hidden>
+        <ul id="agent-investigation-timeline-list"></ul>
+      </div>
+    `
+    resetInvestigationTimeline()
+    beginInvestigationTimeline('session-1')
+    const generation = 'done-gen'
+    mergeInvestigationTimelineFromResult('session-1', generation, [
+      {
+        schemaVersion: 1,
+        type: 'investigation_started',
+        sessionId: 'session-1',
+        generation,
+        at: 1,
+        message: '正在分析 3 个高占用位置'
+      },
+      {
+        schemaVersion: 1,
+        type: 'model_analyzing',
+        sessionId: 'session-1',
+        generation,
+        at: 2,
+        message: '正在生成清理建议'
+      },
+      {
+        schemaVersion: 1,
+        type: 'completed',
+        sessionId: 'session-1',
+        generation,
+        at: 3,
+        message: '调查完成'
+      }
+    ])
+
+    const list = document.getElementById('agent-investigation-timeline-list')!
+    expect(list.textContent).toContain('已分析 3 个高占用位置')
+    expect(list.textContent).toContain('已生成清理建议')
+    expect(list.textContent).toContain('调查完成')
+    expect(list.textContent).not.toContain('正在生成清理建议')
+  })
+
   it('replaces live timeline with authoritative snapshot without duplicates', () => {
     document.body.innerHTML = `
       <div id="agent-investigation-timeline" hidden>

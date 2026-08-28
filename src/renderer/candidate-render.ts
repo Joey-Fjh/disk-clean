@@ -1,5 +1,5 @@
-import { getJudgmentStatusLabel, normalizeCandidate } from '../shared/candidate-model'
-import { getJudgmentOriginLabel } from '../shared/candidate-judgment'
+import { normalizeCandidate } from '../shared/candidate-model'
+import { resolveUserFacingJudgmentSource } from '../shared/ux-flow-model'
 import { formatBytes } from '../shared/format-bytes'
 import type { OccupancyObservation, ScanItem } from '../shared/types'
 import type { EvidenceRenderItem, ScanItemRenderInput } from './safe-render'
@@ -13,15 +13,6 @@ export const EVIDENCE_SOURCE_LABELS = {
 
 function formatSize(bytes: number): string {
   return formatBytes(bytes)
-}
-
-function judgmentBadgeClass(status: ScanItem['judgment']['status']): string {
-  if (status === 'identifying') return 'judgment-identifying'
-  if (status === 'suggested') return 'judgment-suggested'
-  if (status === 'caution') return 'judgment-caution'
-  if (status === 'keep') return 'judgment-keep'
-  if (status === 'uncertain') return 'judgment-uncertain'
-  return 'judgment-pending'
 }
 
 function incompleteHint(obs: OccupancyObservation): string | undefined {
@@ -113,20 +104,16 @@ export function buildScanItemRenderInput(
 ): ScanItemRenderInput {
   const normalized = normalizeCandidate(item)
   const evidenceItems = buildEvidenceItems(item, normalized)
-  const isIdentifying = normalized.judgment.status === 'identifying'
-  const isPending = normalized.judgment.status === 'pending'
 
   return {
     fileName: item.path.replace(/\//g, '\\').split('\\').pop() || item.path,
     path: item.path,
-    typeLabel: `${labels.contentTypeLabel} · ${item.drive}${isIdentifying ? ' · 正在识别' : isPending ? ' · 空间发现' : ' · 逻辑大小估算'}`,
+    typeLabel: `${labels.contentTypeLabel} · ${item.drive}`,
     sizeLabel: formatSize(item.size),
     sizeCaption: resolveSizeCaption(normalized),
-    reason: item.reason,
-    impact: normalized.selection.selectable ? item.impact : undefined,
-    judgmentLabel: getJudgmentStatusLabel(normalized.judgment.status),
-    judgmentClass: judgmentBadgeClass(normalized.judgment.status),
-    originLabel: getJudgmentOriginLabel(normalized.judgment.judgmentOrigin),
+    briefReason: item.reason,
+    riskSummary: item.impact ? `影响：${item.impact}` : undefined,
+    sourceLabel: resolveUserFacingJudgmentSource(item),
     cleanupEligibility: normalized.judgment.judgmentOrigin === 'local-rule' ||
       normalized.judgment.judgmentOrigin === 'local-rule-agent-reviewed'
       ? `清理资格：${item.ruleName}`

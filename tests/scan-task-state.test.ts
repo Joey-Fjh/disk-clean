@@ -38,4 +38,16 @@ describe('scan task state', () => {
       resolveScanTaskHeadline({ phase: 'scanning', driveLabel: 'C: 盘', discoveredCount: 9 })
     ).toContain('正在扫描')
   })
+
+  it('describes executing and rescanning phases', () => {
+    expect(
+      resolveScanTaskHeadline({ phase: 'executing', driveLabel: 'C: 盘', discoveredCount: 12 })
+    ).toContain('回收站')
+    expect(
+      resolveScanTaskSubline({ phase: 'executing', driveLabel: 'C: 盘', discoveredCount: 12 })
+    ).toContain('请勿重复提交')
+    expect(
+      resolveScanTaskHeadline({ phase: 'rescanning', driveLabel: 'C: 盘', discoveredCount: 12 })
+    ).toContain('复核')
+  })
 })

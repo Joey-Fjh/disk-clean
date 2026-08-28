@@ -393,6 +393,22 @@ config/
 
 ---
 
+## 阶段 7A：UI 与主流程集中调整（2026-08-28，进行中，待复审）
+
+| 决策 | 说明 |
+|------|------|
+| MVP 定位 | v0.1 可安装、可日常使用、默认安全、Agent 可选增强 |
+| 主流程 | 统一五步流水线 UI；扫描完成前不展示最终五类分类 |
+| 来源标签 | 本地规则 / Agent / 本地规则 + Agent / 安全策略 / 空间发现 |
+| 详情折叠 | 技术 evidence 默认隐藏于「查看详情」 |
+| 扩展规则 | 仅空间占用次要入口；首页无规则开发工具栏 |
+| 安全 | 不修改 Session Cleanup Authorization 语义 |
+| 未做 | 7B 经验持久化、7C 性能、7D 发布 |
+
+详见 [UX-FLOW-v1.md](./UX-FLOW-v1.md)、[PHASE-7A-REPORT.md](./PHASE-7A-REPORT.md)。
+
+---
+
 ```powershell
 git clone https://github.com/Joey-Fjh/disk-clean.git
 cd disk-clean

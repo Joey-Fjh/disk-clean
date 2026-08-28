@@ -27,6 +27,19 @@ export function mapScanProgressPhaseToTaskPhase(
   return mapScanPhaseToCleanupTaskPhase(scanning, scanPhase, agentReviewing)
 }
 
+/** Preserve post-cleanup rescan phase when scan progress events arrive. */
+export function resolveScanProgressTaskPhase(input: {
+  currentPhase: CleanupTaskPhase
+  isPostCleanupRescan: boolean
+  scanPhase?: ScanPhase
+  agentReviewing?: boolean
+}): ScanTaskPhase {
+  if (input.currentPhase === 'rescanning' || input.isPostCleanupRescan) {
+    return 'rescanning'
+  }
+  return mapScanProgressPhaseToTaskPhase(true, input.scanPhase, input.agentReviewing)
+}
+
 export function resolveScanTaskSubline(input: ScanTaskStateInput): string {
   return resolveCleanupTaskSubline(input)
 }

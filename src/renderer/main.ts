@@ -81,13 +81,25 @@ import {
   wireRuleExtensionMode
 } from './rule-extension-mode'
 import {
-  mapScanProgressPhaseToTaskPhase,
+  resolveScanProgressTaskPhase,
   type ScanTaskPhase
 } from './scan-task-state'
 import { resolveTaskHeadline, resolveTaskSubline, runPlanningPhase } from './cleanup-task-ui'
 import { appendDomInBatches } from './batch-dom'
 import { buildResultStructureKey, patchResultCategoriesDom } from './result-category-patch'
 import { wireRuleKnowledgeSettings } from './rule-knowledge-settings'
+import {
+  resolveProgressBarMode,
+  shouldShowExtensionEntryForCategory,
+  shouldShowFinalResultCategories
+} from '../shared/ux-flow-model'
+import {
+  applyProgressBarMode,
+  renderCleanupOutcomePanel,
+  renderTaskPipeline
+} from './ux-flow-render'
+import { TaskPipelineState, applyResultsReadyPipeline } from './task-pipeline-state'
+import { resolveInteractiveTaskRecovery, resolveScanFailureRecovery } from './task-ui-recovery'
 
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab')
 const panels = document.querySelectorAll<HTMLElement>('.tab-panel')
@@ -171,6 +183,8 @@ const itemCountEl = document.getElementById('item-count') as HTMLElement
 const selectedSizeEl = document.getElementById('selected-size') as HTMLElement
 const totalSizeLabelEl = document.getElementById('total-size-label') as HTMLElement
 const statusText = document.getElementById('status-text') as HTMLElement
+const taskPipelineEl = document.getElementById('task-pipeline') as HTMLElement
+const cleanupOutcomePanel = document.getElementById('cleanup-outcome-panel') as HTMLElement
 
 let scanResult: ScanResult | null = null
 let scanning = false
@@ -179,10 +193,16 @@ let agentCandidateCount = 0
 let renderTimer: number | null = null
 let lastResultStructureKey: string | null = null
 let lastDiscoveryRenderCount = 0
+let lastScanProgress: {
+  phase?: 'space-discovery' | 'rule-identification'
+  current: number
+  total: number
+} | null = null
 let activeBatchCancels = new Set<() => void>()
 let postCleanupRescanSession = createPostCleanupRescanSession()
 let skipAutoAgentForCurrentScan = false
 let cachedPathAccessPolicy: import('../shared/path-access-policy').PathAccessPolicy | null = null
+const taskPipelineState = new TaskPipelineState()
 
 function syncPersistentCleanupStatus(): void {
   const text = resolvePersistentCleanupStatusText(postCleanupRescanSession)
@@ -248,6 +268,38 @@ function refreshTaskProgressUi(discoveredCount = scanResult?.items.length ?? 0):
   const ctx = getTaskProgressContext(discoveredCount)
   if (progressLabel) progressLabel.textContent = resolveTaskHeadline(ctx)
   if (scanTaskStatusEl) scanTaskStatusEl.textContent = resolveTaskSubline(ctx)
+  renderTaskPipeline(taskPipelineEl, {
+    phase: scanTaskPhase,
+    scanning,
+    hasScanResults: Boolean(scanResult && scanResult.items.length > 0),
+    milestone: taskPipelineState.getMilestone(),
+    analyzeSkipped: taskPipelineState.isAnalyzeSkipped()
+  })
+  const barMode = resolveProgressBarMode({
+    scanning,
+    phase: scanTaskPhase,
+    scanPhase: scanning ? lastScanProgress?.phase : undefined
+  })
+  const percent =
+    barMode === 'determinate' && lastScanProgress && lastScanProgress.total > 0
+      ? Math.min((lastScanProgress.current / lastScanProgress.total) * 100, 95)
+      : 0
+  applyProgressBarMode(progress, progressFill, barMode, percent)
+}
+
+function restoreInteractiveTaskState(itemCount: number, phase: ScanTaskPhase = 'completed'): void {
+  const recovery = resolveInteractiveTaskRecovery(itemCount, phase)
+  scanTaskPhase = recovery.phase
+  progress.hidden = recovery.progressHidden
+  refreshTaskProgressUi(itemCount)
+}
+
+function showFinalResults(items: ScanItem[], phase: ScanTaskPhase = 'completed'): void {
+  scanTaskPhase = phase
+  taskPipelineState.advance('suggest')
+  refreshTaskProgressUi(items.length)
+  preservePanelScrollTop(panelClean, () => renderCategories(items))
+  updateSelectedSummary()
 }
 
 function updateScanTaskStatus(discoveredCount = 0): void {
@@ -279,7 +331,7 @@ function createExtensionEntryHost(): HTMLElement {
   btn.type = 'button'
   btn.className = 'btn btn-secondary'
   btn.id = 'rule-extension-entry'
-  btn.textContent = '创建识别规则'
+  btn.textContent = '扩展清理识别'
   btn.addEventListener('click', () => {
     enterRuleExtensionMode()
     setExtensionEntryHostsVisible(false)
@@ -303,19 +355,26 @@ function updateProgressUI(p: {
   categoryCurrent: number
   categoryTotal: number
 }): void {
-  scanTaskPhase = mapScanProgressPhaseToTaskPhase(true, p.phase, isAgentReviewing())
+  scanTaskPhase = resolveScanProgressTaskPhase({
+    currentPhase: scanTaskPhase,
+    isPostCleanupRescan: isPostCleanupRescanActive(postCleanupRescanSession),
+    scanPhase: p.phase,
+    agentReviewing: isAgentReviewing()
+  })
+  lastScanProgress = {
+    phase: p.phase,
+    current: p.current,
+    total: p.total
+  }
   refreshTaskProgressUi(p.current)
 
   if (p.phase === 'space-discovery') {
     progressRule.textContent = p.label || '…'
-    progressHint.textContent = `空间发现 · ${p.current}/${p.total}`
+    progressHint.textContent = `空间发现 · 已发现 ${p.current} 项`
   } else {
     progressRule.textContent = p.label || p.ruleName || '…'
     progressHint.textContent = `${RULE_CATEGORY_LABELS[p.category]} · 本档 ${p.categoryCurrent}/${p.categoryTotal}`
   }
-
-  const percent = p.total > 0 ? Math.min((p.current / p.total) * 100, 95) : 0
-  progressFill.style.width = `${percent}%`
 }
 
 function isSelectable(item: ScanItem): boolean {
@@ -387,7 +446,7 @@ function renderScanningDiscoveries(items: ScanItem[]): void {
 
 function setScanning(active: boolean): void {
   scanning = active
-  scanBtn.textContent = active ? '停止扫描' : '开始扫描'
+  scanBtn.textContent = active ? '停止扫描' : '开始清理扫描'
   scanBtn.classList.toggle('btn-primary', !active)
   scanBtn.classList.toggle('btn-stop', active)
   driveSelect.disabled = active
@@ -402,6 +461,7 @@ function finishScan(result: ScanResult): void {
   scanResult = result
   const { items, errors, cancelled, drive } = result
   scanTaskPhase = cancelled ? 'cancelled' : 'organizing'
+  taskPipelineState.advance('scan')
   updateScanTaskStatus(items.length)
 
   exitRuleExtensionMode()
@@ -414,7 +474,6 @@ function finishScan(result: ScanResult): void {
     window.clearTimeout(renderTimer)
     renderTimer = null
   }
-  preservePanelScrollTop(panelClean, () => renderCategories(items))
   updateSelectedSummary()
 
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
@@ -424,31 +483,33 @@ function finishScan(result: ScanResult): void {
       skipAutoAgentForCurrentScan = false
       syncPersistentCleanupStatus()
       refreshRescanRetryButton()
-      scanTaskPhase = 'completed'
-      refreshTaskProgressUi(items.length)
+      taskPipelineState.advance('review')
+      showFinalResults(items, 'completed')
       return
     }
     if (postCleanupRescanSession.pendingCleanupOutcome && postCleanupRescanSession.cleanupOutcomeSummary) {
-      const comparison = buildCleanupRescanComparison(postCleanupRescanSession.pendingCleanupOutcome, items)
+      const manifest = postCleanupRescanSession.pendingCleanupOutcome
+      const comparison = buildCleanupRescanComparison(manifest, items)
+      const comparisonDetail = formatCleanupRescanComparison(comparison)
       postCleanupRescanSession = applyPostCleanupRescanFinish(postCleanupRescanSession, {
         cancelled: false,
-        comparisonDetail: formatCleanupRescanComparison(comparison)
+        comparisonDetail
       })
+      renderCleanupOutcomePanel(cleanupOutcomePanel, manifest, comparisonDetail)
     } else {
       postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
     }
     skipAutoAgentForCurrentScan = false
     syncPersistentCleanupStatus()
     refreshRescanRetryButton()
-    scanTaskPhase = 'completed'
-    refreshTaskProgressUi(items.length)
+    taskPipelineState.advance('review')
+    showFinalResults(items, 'completed')
     return
   }
 
   if (cancelled) {
     statusText.textContent = `${driveLabel} · 扫描已停止 · 保留 ${items.length} 项结果`
-    scanTaskPhase = 'cancelled'
-    refreshTaskProgressUi(items.length)
+    showFinalResults(items, 'cancelled')
     return
   }
 
@@ -475,6 +536,7 @@ function finishScan(result: ScanResult): void {
     })()
   } else {
     onScanCancelledNoAnalysis(result.sessionId)
+    taskPipelineState.markAnalyzeSkipped()
     void (async () => {
       if (!cancelled) {
         await runPlanningPhase(
@@ -483,11 +545,8 @@ function finishScan(result: ScanResult): void {
           },
           () => refreshTaskProgressUi(items.length)
         )
-        scanTaskPhase = 'completed'
-      } else {
-        scanTaskPhase = 'cancelled'
       }
-      refreshTaskProgressUi(items.length)
+      showFinalResults(items, cancelled ? 'cancelled' : 'completed')
     })()
   }
 }
@@ -518,7 +577,11 @@ function createAppAgentAnalysisCallbacks(sessionId?: string) {
     renderCategories: (items) => renderCategories(items),
     updateSelectedSummary,
     preservePanelScroll: (fn) => preservePanelScrollTop(panelClean, fn),
-    openSettings: openAgentSettingsTab
+    openSettings: openAgentSettingsTab,
+    onResultsReady: (items, analysisStatus) => {
+      applyResultsReadyPipeline(taskPipelineState, analysisStatus)
+      refreshTaskProgressUi(items.length)
+    }
   })
 }
 
@@ -569,7 +632,7 @@ function wireScanItemListElement(
     ruleDraftSelection.toggle(item.id, draftPick.checked)
     syncRuleExtensionUi()
   })
-  draftPickLabel.append(draftPick, document.createTextNode('规则样本'))
+  draftPickLabel.append(draftPick, document.createTextNode('识别样本'))
   li.appendChild(draftPickLabel)
 
   const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
@@ -606,6 +669,15 @@ function updateSelectedSummary(): void {
 }
 
 function renderCategories(items: ScanItem[]): void {
+  if (!shouldShowFinalResultCategories({
+    scanning,
+    phase: scanTaskPhase,
+    agentReviewing: isAgentReviewing()
+  })) {
+    if (scanning) renderScanningDiscoveries(items)
+    return
+  }
+
   const structureKey = buildResultStructureKey(items, { agentReviewing: isAgentReviewing() })
   const existingPanel = categoriesEl.querySelector('.result-panel') as HTMLElement | null
   if (existingPanel && lastResultStructureKey === structureKey) {
@@ -823,7 +895,7 @@ function renderCategories(items: ScanItem[]): void {
     `
 
     if (
-      (category === 'space-occupancy' || category === 'caution-clean') &&
+      shouldShowExtensionEntryForCategory(category) &&
       shouldShowExtensionEntry({
         scanning,
         hasSession: Boolean(scanResult?.sessionId),
@@ -879,6 +951,9 @@ async function startPostCleanupRescan(): Promise<void> {
   const options = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
   if (!options) return
   postCleanupRescanSession = reducePostCleanupRescanSession(postCleanupRescanSession, { type: 'retry-rescan' })
+  scanTaskPhase = 'rescanning'
+  progress.hidden = false
+  refreshTaskProgressUi(scanResult?.items.length ?? 0)
   syncPersistentCleanupStatus()
   refreshRescanRetryButton()
   await startScan(options)
@@ -930,12 +1005,15 @@ async function startScan(
   })
   postCleanupRescanSession = committed.session
   skipAutoAgentForCurrentScan = committed.skipAutoAgent
+  const isPostCleanupRescan = isPostCleanupRescanActive(postCleanupRescanSession)
   if (isOrdinaryScan) {
     refreshRescanRetryButton()
+    renderCleanupOutcomePanel(cleanupOutcomePanel, null)
+    taskPipelineState.reset()
   }
 
   setScanning(true)
-  scanTaskPhase = 'scanning'
+  scanTaskPhase = isPostCleanupRescan ? 'rescanning' : 'scanning'
   updateScanTaskStatus(0)
   candidateSelection.clear()
   ruleDraftSelection.clear()
@@ -946,6 +1024,7 @@ async function startScan(
   resultCategoryView.clear()
   lastResultStructureKey = null
   lastDiscoveryRenderCount = 0
+  lastScanProgress = null
   cachedPathAccessPolicy = null
   cancelActiveBatchRender()
   scanResult = null
@@ -955,12 +1034,14 @@ async function startScan(
   progressFill.style.width = '0%'
   progressRule.textContent = '准备开始…'
   progressLabel.textContent = resolveTaskHeadline({
-    phase: 'scanning',
+    phase: scanTaskPhase,
     driveLabel: getDriveLabel(),
     discoveredCount: 0,
     agentStatus: undefined
   })
-  progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · 统一扫描`
+  progressHint.textContent = isPostCleanupRescan
+    ? '正在自动复核清理结果…'
+    : `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · 统一扫描`
   statusText.textContent = resolveScanInitializationStatusText(
     postCleanupRescanSession,
     '扫描中，发现的项目将实时列出…'
@@ -968,6 +1049,7 @@ async function startScan(
 
   let accumulatedItems: ScanItem[] = []
   let accumulatedErrors: ScanError[] = []
+  let scanFailureItemCount: number | null = null
   updateLiveSummary(accumulatedItems)
 
   const unsubscribeProgress = window.diskClean.onScanProgress((p) => {
@@ -984,7 +1066,8 @@ async function startScan(
     const result = await window.diskClean.startScan({ drive })
     finishScan(result)
   } catch (err) {
-    if (isPostCleanupRescanActive(postCleanupRescanSession) && postCleanupRescanSession.cleanupOutcomeSummary) {
+    const isRescanFailure = isPostCleanupRescanActive(postCleanupRescanSession)
+    if (isRescanFailure && postCleanupRescanSession.cleanupOutcomeSummary) {
       postCleanupRescanSession = applyPostCleanupRescanFailure(
         postCleanupRescanSession,
         err instanceof Error ? err.message : String(err)
@@ -994,13 +1077,19 @@ async function startScan(
     } else {
       statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
     }
-    progress.hidden = true
+    const failureRecovery = resolveScanFailureRecovery(isRescanFailure)
+    scanTaskPhase = failureRecovery.phase
+    scanFailureItemCount = accumulatedItems.length
   } finally {
     postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
     refreshRescanRetryButton()
     unsubscribeProgress()
     unsubscribeItems()
     setScanning(false)
+    lastScanProgress = null
+    if (scanFailureItemCount !== null) {
+      refreshTaskProgressUi(scanFailureItemCount)
+    }
   }
 }
 
@@ -1026,6 +1115,9 @@ async function cleanSelected(): Promise<void> {
   }
 
   cleanBtn.disabled = true
+  scanTaskPhase = 'executing'
+  progress.hidden = false
+  refreshTaskProgressUi(scanResult.items.length)
   statusText.textContent = '正在生成清理计划并校验…'
 
   let preview
@@ -1036,6 +1128,7 @@ async function cleanSelected(): Promise<void> {
       candidateIds: selected.map((item) => item.id)
     })
   } catch (err) {
+    restoreInteractiveTaskState(scanResult.items.length)
     statusText.textContent = `无法生成清理计划：${err instanceof Error ? err.message : String(err)}`
     updateSelectedSummary()
     return
@@ -1059,11 +1152,13 @@ async function cleanSelected(): Promise<void> {
     ].filter((line): line is string => Boolean(line))
   })
   if (!confirmed) {
+    restoreInteractiveTaskState(scanResult.items.length)
     updateSelectedSummary()
     return
   }
 
   statusText.textContent = '正在移入回收站…'
+  refreshTaskProgressUi(scanResult.items.length)
 
   let cleanupResult
   try {
@@ -1071,10 +1166,13 @@ async function cleanSelected(): Promise<void> {
       confirmationId: preview.confirmationId
     })
   } catch (err) {
+    restoreInteractiveTaskState(scanResult.items.length)
     statusText.textContent = `清理失败：${err instanceof Error ? err.message : String(err)}`
     updateSelectedSummary()
     return
   }
+
+  taskPipelineState.advance('execute')
 
   const manifest = buildCleanupOutcomeManifest({
     sessionId: scanResult.sessionId,
@@ -1086,6 +1184,7 @@ async function cleanSelected(): Promise<void> {
     result: cleanupResult
   })
   const summary = formatCleanupOutcomeSummary(manifest)
+  renderCleanupOutcomePanel(cleanupOutcomePanel, manifest)
   postCleanupRescanSession = beginPostCleanupRescanSession(postCleanupRescanSession, {
     cleanupOutcomeSummary: summary,
     pendingCleanupOutcome: manifest,
@@ -1095,7 +1194,14 @@ async function cleanSelected(): Promise<void> {
   refreshRescanRetryButton()
   const rescanOptions = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
   if (rescanOptions) {
+    scanTaskPhase = 'rescanning'
+    progress.hidden = false
+    refreshTaskProgressUi(scanResult.items.length)
     await startScan(rescanOptions)
+  } else {
+    scanTaskPhase = 'completed'
+    progress.hidden = true
+    refreshTaskProgressUi(scanResult.items.length)
   }
   updateSelectedSummary()
 }

@@ -1,5 +1,7 @@
+import type { AgentAnalysisStatus } from '../shared/agent-types'
 import type { ScanItem, ScanResult } from '../shared/types'
 import type { AgentAnalysisCallbacks } from './agent-analysis'
+import { getCurrentAgentAnalysis } from './agent-analysis'
 import type { ScanTaskPhase } from './scan-task-state'
 import { runPlanningPhase } from './cleanup-task-ui'
 
@@ -15,6 +17,7 @@ export interface AgentSessionLifecycleContext {
   updateSelectedSummary: () => void
   preservePanelScroll: (fn: () => void) => void
   openSettings: () => void
+  onResultsReady?: (items: ScanItem[], analysisStatus?: AgentAnalysisStatus) => void
 }
 
 /** Shared Agent analysis lifecycle hooks for first-run auto analysis and manual retry. */
@@ -36,16 +39,18 @@ export function createAgentAnalysisSessionCallbacks(
         (phase) => ctx.setTaskPhase(phase),
         () => ctx.refreshTaskProgress(items.length)
       )
-      ctx.preservePanelScroll(() => ctx.renderCategories(items))
-      ctx.updateSelectedSummary()
       ctx.setTaskPhase('completed')
       ctx.refreshTaskProgress(items.length)
+      ctx.preservePanelScroll(() => ctx.renderCategories(items))
+      ctx.updateSelectedSummary()
+      ctx.onResultsReady?.(items, getCurrentAgentAnalysis()?.status)
     },
     onFailed: async () => {
       ctx.setTaskPhase('failed')
       const scanResult = ctx.getScanResult()
       if (scanResult) {
         ctx.preservePanelScroll(() => ctx.renderCategories(scanResult.items))
+        ctx.onResultsReady?.(scanResult.items, getCurrentAgentAnalysis()?.status)
       }
       ctx.refreshTaskProgress(scanResult?.items.length ?? 0)
     },
@@ -54,6 +59,7 @@ export function createAgentAnalysisSessionCallbacks(
       const scanResult = ctx.getScanResult()
       if (scanResult) {
         ctx.preservePanelScroll(() => ctx.renderCategories(scanResult.items))
+        ctx.onResultsReady?.(scanResult.items, getCurrentAgentAnalysis()?.status)
       }
       ctx.refreshTaskProgress(scanResult?.items.length ?? 0)
     },

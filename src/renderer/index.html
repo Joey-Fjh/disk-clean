@@ -46,7 +46,7 @@
             <select id="drive-select" class="drive-select" title="选择要扫描的磁盘">
               <option value="all">全部磁盘</option>
             </select>
-            <button id="scan-btn" class="btn btn-primary">开始扫描</button>
+            <button id="scan-btn" class="btn btn-primary">开始清理扫描</button>
             <button id="retry-rescan-btn" class="btn btn-secondary" hidden>重新复核</button>
             <button id="clean-btn" class="btn btn-danger" disabled>清理选中项</button>
           </div>
@@ -67,13 +67,19 @@
           </div>
         </section>
 
+        <nav id="task-pipeline" class="task-pipeline" hidden aria-label="清理流程"></nav>
+
         <section class="progress" id="progress" hidden>
           <p class="progress-label" id="progress-label">正在扫描 · 准备开始</p>
           <p class="scan-task-status" id="scan-task-status" aria-live="polite"></p>
           <p class="progress-rule" id="progress-rule">准备开始…</p>
           <p class="progress-hint" id="progress-hint"></p>
-          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
         </section>
+
+        <section id="cleanup-outcome-panel" class="cleanup-outcome-panel" hidden aria-live="polite"></section>
 
         <section class="rule-extension-card" id="rule-extension-card" hidden>
           <h3 class="rule-extension-title">扩展清理识别</h3>
@@ -152,12 +158,12 @@
               </svg>
             </div>
             <h3>准备就绪</h3>
-            <p>选择磁盘后点击「开始扫描」，发现空间占用并识别规则覆盖的候选项</p>
+            <p>选择磁盘后点击「开始清理扫描」，完成空间整理、本地识别与可选智能分析</p>
           </section>
         </main>
 
         <footer class="footer">
-          <p id="status-text" aria-live="polite">点击「开始扫描」检查可清理内容</p>
+          <p id="status-text" aria-live="polite">点击「开始清理扫描」检查可清理内容</p>
         </footer>
       </div>
 
@@ -305,20 +311,21 @@
                 <svg viewBox="0 0 20 20" width="18" height="18"><path d="M5 4h10v12H5z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M8 8h4M8 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               </span>
               <span class="settings-card-heading">
-                <span class="settings-card-title">规则与知识库</span>
-                <span class="settings-card-desc">规则包、扩展规则与安全策略分层管理</span>
+                <span class="settings-card-title">规则与经验</span>
+                <span class="settings-card-desc">内置规则、我的规则与安全策略</span>
               </span>
               <span class="settings-card-summary" id="rules-card-summary">规则包 0/0 · 待确认扩展规则 0</span>
               <span class="settings-card-chevron" aria-hidden="true"></span>
             </button>
             <div class="settings-card-body" id="settings-card-rules-body" hidden>
               <div class="settings-card-body-inner">
-                <div class="rules-toolbar">
-                  <button id="import-rule-draft-btn" class="btn btn-secondary" type="button">导入规则 JSON</button>
-                </div>
-                <div class="sub-tab-bar" id="rules-knowledge-tabs" role="tablist" aria-label="规则与知识库">
-                  <button type="button" class="sub-tab active" role="tab" data-rules-knowledge-tab="packs" aria-selected="true">规则包</button>
-                  <button type="button" class="sub-tab" role="tab" data-rules-knowledge-tab="drafts" aria-selected="false" tabindex="-1">扩展规则</button>
+                <section class="experience-placeholder" aria-disabled="true">
+                  <h3 class="provider-section-title">我的经验</h3>
+                  <p class="rules-status">即将支持保存排除项与软件特征，帮助你更快识别同类内容。</p>
+                </section>
+                <div class="sub-tab-bar" id="rules-knowledge-tabs" role="tablist" aria-label="规则与经验">
+                  <button type="button" class="sub-tab active" role="tab" data-rules-knowledge-tab="packs" aria-selected="true">内置规则</button>
+                  <button type="button" class="sub-tab" role="tab" data-rules-knowledge-tab="drafts" aria-selected="false" tabindex="-1">我的规则</button>
                   <button type="button" class="sub-tab" role="tab" data-rules-knowledge-tab="safety" aria-selected="false" tabindex="-1">安全策略</button>
                 </div>
                 <div data-rules-knowledge-panel="packs">
@@ -326,6 +333,9 @@
                   <p id="rule-packs-status" class="rules-status"></p>
                 </div>
                 <div data-rules-knowledge-panel="drafts" hidden>
+                  <div class="rules-toolbar">
+                    <button id="import-rule-draft-btn" class="btn btn-secondary" type="button">导入规则 JSON</button>
+                  </div>
                   <div id="rule-drafts-list" class="rules-list"></div>
                   <div id="rule-draft-post-enable" class="rule-post-enable" hidden></div>
                   <p id="rule-drafts-status" class="rules-status"></p>

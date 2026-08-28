@@ -8,6 +8,8 @@ export type CleanupTaskPhase =
   | 'organizing'
   | 'analyzing'
   | 'planning'
+  | 'executing'
+  | 'rescanning'
   | 'completed'
   | 'failed'
   | 'cancelled'
@@ -48,6 +50,10 @@ export function resolveCleanupTaskHeadline(input: CleanupTaskProgressInput): str
       return '正在应用本地清理规则'
     case 'planning':
       return '正在生成清理建议'
+    case 'executing':
+      return '正在移入回收站'
+    case 'rescanning':
+      return '正在自动复核清理结果'
     case 'completed':
       if (input.agentStatus === 'cancelled') {
         return '本地分析完成，智能复核已停止'
@@ -73,7 +79,11 @@ export function resolveCleanupTaskSubline(input: CleanupTaskProgressInput): stri
     case 'organizing':
       return '正在应用本地清理规则'
     case 'analyzing':
-      return input.agentStatus === 'running' ? '正在进行智能复核…' : ''
+      return input.agentStatus === 'running' ? '正在进行智能分析…' : ''
+    case 'executing':
+      return '请勿重复提交，执行完成后将自动复核'
+    case 'rescanning':
+      return '对比清理前后路径是否消失'
     case 'failed':
       return '本地规则结果仍可使用'
     case 'completed':
@@ -89,5 +99,12 @@ export function resolveCleanupTaskSubline(input: CleanupTaskProgressInput): stri
 }
 
 export function isCleanupTaskInProgress(phase: CleanupTaskPhase): boolean {
-  return phase === 'scanning' || phase === 'organizing' || phase === 'analyzing' || phase === 'planning'
+  return (
+    phase === 'scanning' ||
+    phase === 'organizing' ||
+    phase === 'analyzing' ||
+    phase === 'planning' ||
+    phase === 'executing' ||
+    phase === 'rescanning'
+  )
 }

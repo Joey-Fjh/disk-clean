@@ -30,4 +30,10 @@ describe('rule extension user-facing copy', () => {
     expect(html).not.toContain('rule-extension-entry-wrap')
     expect(html).not.toContain('rule-draft-actions')
   })
+
+  it('hides rule draft pick controls when hidden attribute is set', () => {
+    const css = readFileSync(join(process.cwd(), 'src/renderer/style.css'), 'utf-8')
+    expect(css).toContain('.rule-draft-pick[hidden]')
+    expect(css).toContain('display: none !important')
+  })
 })

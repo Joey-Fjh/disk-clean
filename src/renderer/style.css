@@ -527,7 +527,9 @@ input:focus-visible,
 
 #panel-clean > .panel-header,
 #panel-clean > .summary,
+#panel-clean > .task-pipeline,
 #panel-clean > .progress,
+#panel-clean > .cleanup-outcome-panel,
 #panel-clean > .rule-extension-card,
 #panel-clean > .agent-analysis-banner,
 #panel-clean > .categories,
@@ -574,6 +576,10 @@ input:focus-visible,
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.rule-draft-pick[hidden] {
+  display: none !important;
 }
 
 .rule-draft-actions .btn-link {
@@ -1721,4 +1727,207 @@ input:focus-visible,
   font-size: 0.9rem;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+/* ── Phase 7A: unified task flow ── */
+.task-pipeline {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+}
+
+.task-pipeline-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  list-style: none;
+}
+
+.task-pipeline-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.task-pipeline-step.is-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.task-pipeline-step.is-done {
+  color: var(--safe);
+}
+
+.task-pipeline-step.is-skipped {
+  color: var(--text-secondary);
+}
+
+.task-pipeline-step.is-skipped .task-pipeline-label {
+  color: var(--text-muted);
+}
+
+.task-pipeline-step.is-skipped .task-pipeline-marker {
+  background: transparent;
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.task-pipeline-skip-note {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.task-pipeline-marker {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  flex: 0 0 auto;
+}
+
+.task-pipeline-step.is-active .task-pipeline-marker {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.task-pipeline-step.is-done .task-pipeline-marker {
+  background: var(--safe);
+  border-color: var(--safe);
+}
+
+.progress-indeterminate .progress-fill {
+  width: 35% !important;
+  animation: progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate .progress-fill {
+    animation: none;
+    width: 100% !important;
+    opacity: 0.65;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.cleanup-outcome-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+
+.cleanup-outcome-panel.tone-success {
+  border-left: 4px solid var(--safe);
+}
+
+.cleanup-outcome-panel.tone-partial {
+  border-left: 4px solid var(--recommended);
+}
+
+.cleanup-outcome-panel.tone-failed {
+  border-left: 4px solid var(--dangerous);
+}
+
+.cleanup-outcome-title {
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
+.cleanup-outcome-details,
+.cleanup-outcome-failures {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+
+.cleanup-outcome-comparison {
+  margin-top: 10px;
+  font-size: 0.86rem;
+}
+
+.judgment-source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.item-details {
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
+.item-details summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.item-risk {
+  color: var(--recommended);
+}
+
+.experience-placeholder {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  opacity: 0.85;
+}
+
+@media (max-width: 1366px) {
+  .panel-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .category-tab {
+    padding: 8px 6px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .app {
+    min-width: 320px;
+  }
+
+  .header-actions .btn,
+  .drive-select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .task-pipeline-steps {
+    flex-direction: column;
+  }
 }

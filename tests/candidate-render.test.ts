@@ -103,12 +103,13 @@ describe('buildScanItemRenderInput', () => {
     expect(input.evidenceItems?.find((e) => e.source === 'space-scan')?.summary).toContain('不完整')
   })
 
-  it('shows identifying state for pure space discovery items', () => {
+  it('shows space discovery source for pure space discovery items', () => {
     const pending = legacyAnalyzer({ path: 'C:\\Users', size: 50 * MB })
 
     const input = buildScanItemRenderInput(pending, { contentTypeLabel: '大型目录' })
 
-    expect(input.typeLabel).toContain('正在识别')
+    expect(input.typeLabel).toBe('大型目录 · C:')
+    expect(input.sourceLabel).toBe('空间发现')
     expect(input.sizeCaption).toBe('空间占用估算')
     expect(input.evidenceItems?.some((e) => e.source === 'space-scan')).toBe(true)
     expect(input.evidenceItems?.[0]?.sourceLabel).toBe('空间发现')
@@ -157,7 +158,7 @@ describe('createScanItemElement evidence rendering', () => {
       ]
     })
 
-    const summary = li.querySelector('.item-evidence-summary')
+    const summary = li.querySelector('.item-details .item-evidence-summary')
     expect(summary?.textContent).toBe(payload)
     expect(summary?.innerHTML).not.toContain('<script>')
     expect(li.querySelector('script')).toBeNull()
@@ -173,10 +174,8 @@ describe('createScanItemElement evidence rendering', () => {
 
     expect(li.querySelector('.item-size-caption')?.textContent).toBe('可清理逻辑大小估算')
     expect(li.querySelector('.item-size-value')?.textContent).toContain('880')
-    expect(li.textContent).toContain('空间观察')
-    expect(li.textContent).toContain('900')
-    expect(li.textContent).toContain('规则')
-    expect(li.textContent).toContain('不完整')
+    expect(li.querySelector('details.item-details')).not.toBeNull()
+    expect(li.textContent).toContain('查看详情')
   })
 
   it('does not disable checkbox based on evidence rendering', () => {
@@ -204,7 +203,7 @@ describe('createScanItemElement evidence rendering', () => {
       ]
     })
 
-    const rows = li.querySelectorAll('.item-evidence-row')
+    const rows = li.querySelectorAll('.item-details .item-evidence-row')
     expect(rows).toHaveLength(2)
     expect(li.textContent).toContain('Agent')
     expect(li.textContent).toContain('模型判断依据')

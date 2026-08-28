@@ -38,8 +38,9 @@ describe('agent renderer safety', () => {
     const li = createScanItemElement(
       buildScanItemRenderInput(item, { contentTypeLabel: '临时文件' })
     )
-    expect(li.querySelector('.item-agent-insight')?.innerHTML).not.toContain('<img')
-    expect(li.querySelector('.item-agent-insight')?.textContent).toContain('<img')
+    const details = li.querySelector('.item-details')
+    expect(details?.innerHTML).not.toContain('<img')
+    expect(details?.textContent).toContain('<img')
     expect(li.querySelector('script')).toBeNull()
   })
 })
