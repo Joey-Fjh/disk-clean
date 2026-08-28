@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ProviderConfigStore, type SafeStorageAdapter } from '../src/main/provider/provider-config-store'
 import { assertNoSecretsInValue } from '../src/main/provider/provider-errors'
 import {
-  deleteProviderApiKey,
+  createProviderProfile,
+  deleteProviderProfile,
+  listProviderProfiles,
   saveProviderConfig,
   setProviderStoreForTests,
   testProviderCapability,
@@ -43,9 +45,15 @@ function installStore(): ProviderConfigStore {
 }
 
 describe('provider service', () => {
-  it('returns CONFIG_MISSING when testing without saved key', async () => {
+  it('returns CONFIG_MISSING when testing profile without saved key', async () => {
     installStore()
-    const result = await testProviderConnection()
+    const created = createProviderProfile({
+      name: 'Empty',
+      providerId: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini'
+    })
+    const result = await testProviderConnection(created.profiles[0].id)
     expect(result.success).toBe(false)
     expect(result.errorCode).toBe('CONFIG_MISSING')
     assertNoSecretsInValue(result, API_KEY)
@@ -59,6 +67,7 @@ describe('provider service', () => {
       model: 'gpt-4o-mini',
       apiKey: API_KEY
     })
+    const profileId = listProviderProfiles().activeProfileId!
 
     let body = ''
     const fetchFn = (async (_url, init) => {
@@ -66,7 +75,7 @@ describe('provider service', () => {
       return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })
     }) as typeof fetch
 
-    const result = await testProviderConnection(fetchFn)
+    const result = await testProviderConnection(profileId, fetchFn)
     expect(result.success).toBe(true)
     expect(body).toContain('ping')
     expect(body).toContain('"max_tokens":8')
@@ -82,6 +91,7 @@ describe('provider service', () => {
       model: 'gpt-4o-mini',
       apiKey: API_KEY
     })
+    const profileId = listProviderProfiles().activeProfileId!
 
     const okFetch = (async () =>
       new Response(
@@ -91,7 +101,7 @@ describe('provider service', () => {
         { status: 200 }
       )) as typeof fetch
 
-    const ok = await testProviderCapability(okFetch)
+    const ok = await testProviderCapability(profileId, okFetch)
     expect(ok.success).toBe(true)
     expect(ok.capability).toBe('ok')
 
@@ -100,12 +110,12 @@ describe('provider service', () => {
         status: 200
       })) as typeof fetch
 
-    const bad = await testProviderCapability(badFetch)
+    const bad = await testProviderCapability(profileId, badFetch)
     expect(bad.success).toBe(false)
     expect(bad.capability).toBe('invalid_json')
   })
 
-  it('deleteProviderApiKey clears key metadata', () => {
+  it('deleteProviderProfile removes entire profile including key', () => {
     installStore()
     saveProviderConfig({
       providerId: 'openai',
@@ -113,9 +123,9 @@ describe('provider service', () => {
       model: 'gpt-4o-mini',
       apiKey: API_KEY
     })
-
-    const deleted = deleteProviderApiKey()
-    expect(deleted?.hasKey).toBe(false)
-    expect(deleted?.keyLastFour).toBeUndefined()
+    const profileId = listProviderProfiles().activeProfileId!
+    const deleted = deleteProviderProfile(profileId)
+    expect(deleted.profiles).toHaveLength(0)
+    expect(deleted.activeProfileId).toBeNull()
   })
 })

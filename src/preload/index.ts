@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
-  ProviderConfigPublic,
+  CreateProviderProfileInput,
   ProviderErrorCode,
+  ProviderProfilesPublicState,
   ProviderTestResult,
-  SaveProviderConfigInput
+  UpdateProviderProfileInput
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
+import type { InvestigationTimelineEvent } from '../shared/investigation-timeline-types'
 import type {
   InvestigationExecuteToolResult,
   InvestigationPublicStatus,
@@ -19,9 +21,12 @@ import type {
   StoredRuleDraft
 } from '../shared/rule-layer-types'
 import type { AgentIpcResult } from '../shared/agent-ipc'
+import type { CleanupIpcResult } from '../shared/cleanup-ipc'
 import type { ProviderIpcResult } from '../shared/provider-ipc'
 import type {
-  CleanupRequest,
+  CleanupExecuteRequest,
+  CleanupPlanPreview,
+  CleanupPrepareRequest,
   CleanupResult,
   RuleWithMeta,
   ScanItem,
@@ -61,6 +66,27 @@ async function invokeAgentIpc<T>(channel: string, ...args: unknown[]): Promise<T
   return result.value
 }
 
+export class CleanupInvokeError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'CleanupInvokeError'
+    this.code = code
+  }
+}
+
+async function invokeCleanupIpc<T>(channel: string, ...args: unknown[]): Promise<T> {
+  const result = (await ipcRenderer.invoke(channel, ...args)) as CleanupIpcResult<T>
+  if (!result || typeof result !== 'object' || !('ok' in result)) {
+    throw new CleanupInvokeError('INVALID_INPUT', 'Cleanup IPC 响应无效')
+  }
+  if (!result.ok) {
+    throw new CleanupInvokeError(result.code, result.message)
+  }
+  return result.value
+}
+
 async function invokeProviderIpc<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result = (await ipcRenderer.invoke(channel, ...args)) as ProviderIpcResult<T>
   if (!result || typeof result !== 'object' || !('ok' in result)) {
@@ -86,8 +112,17 @@ contextBridge.exposeInMainWorld('diskClean', {
     ipcRenderer.on('scan:items', handler)
     return () => ipcRenderer.removeListener('scan:items', handler)
   },
-  executeCleanup: (request: CleanupRequest): Promise<CleanupResult> =>
-    ipcRenderer.invoke('cleanup:execute', request),
+  getScanSessionInfo: (): Promise<{
+    sessionId: string
+    fingerprint: string
+    drive: string
+    candidateCount: number
+    revision: number
+  } | null> => ipcRenderer.invoke('scan:get-session-info'),
+  prepareCleanup: (request: CleanupPrepareRequest): Promise<CleanupPlanPreview> =>
+    invokeCleanupIpc('cleanup:prepare', request),
+  executeConfirmedCleanup: (request: CleanupExecuteRequest): Promise<CleanupResult> =>
+    invokeCleanupIpc('cleanup:execute', request),
   listRules: (): Promise<RuleWithMeta[]> => ipcRenderer.invoke('rules:list'),
   setRuleEnabled: (ruleId: string, enabled: boolean): Promise<RuleWithMeta[]> =>
     ipcRenderer.invoke('rules:setEnabled', ruleId, enabled),
@@ -97,18 +132,29 @@ contextBridge.exposeInMainWorld('diskClean', {
   importRules: (): Promise<{ imported: number; rules: RuleWithMeta[] }> =>
     ipcRenderer.invoke('rules:import'),
   openInExplorer: (targetPath: string): Promise<void> => ipcRenderer.invoke('path:open', targetPath),
-  getProviderConfig: (): Promise<ProviderConfigPublic | null> =>
-    invokeProviderIpc<ProviderConfigPublic | null>('provider:getConfig'),
-  saveProviderConfig: (input: SaveProviderConfigInput): Promise<ProviderConfigPublic> =>
-    invokeProviderIpc<ProviderConfigPublic>('provider:saveConfig', input),
-  deleteProviderApiKey: (): Promise<ProviderConfigPublic | null> =>
-    invokeProviderIpc<ProviderConfigPublic | null>('provider:deleteApiKey'),
-  testProviderConnection: (): Promise<ProviderTestResult> =>
-    invokeProviderIpc<ProviderTestResult>('provider:testConnection'),
-  testProviderCapability: (): Promise<ProviderTestResult> =>
-    invokeProviderIpc<ProviderTestResult>('provider:testCapability'),
+  listProviderProfiles: (): Promise<ProviderProfilesPublicState> =>
+    invokeProviderIpc<ProviderProfilesPublicState>('provider:listProfiles'),
+  createProviderProfile: (input: CreateProviderProfileInput): Promise<ProviderProfilesPublicState> =>
+    invokeProviderIpc<ProviderProfilesPublicState>('provider:createProfile', input),
+  updateProviderProfile: (input: UpdateProviderProfileInput): Promise<ProviderProfilesPublicState> =>
+    invokeProviderIpc<ProviderProfilesPublicState>('provider:updateProfile', input),
+  deleteProviderProfile: (profileId: string): Promise<ProviderProfilesPublicState> =>
+    invokeProviderIpc<ProviderProfilesPublicState>('provider:deleteProfile', { profileId }),
+  setActiveProviderProfile: (profileId: string): Promise<ProviderProfilesPublicState> =>
+    invokeProviderIpc<ProviderProfilesPublicState>('provider:setActiveProfile', { profileId }),
+  testProviderConnection: (profileId: string): Promise<ProviderTestResult> =>
+    invokeProviderIpc<ProviderTestResult>('provider:testConnection', { profileId }),
+  testProviderCapability: (profileId: string): Promise<ProviderTestResult> =>
+    invokeProviderIpc<ProviderTestResult>('provider:testCapability', { profileId }),
   analyzeScan: (request: AgentAnalyzeRequest): Promise<AgentAnalyzeResult> =>
     invokeAgentIpc<AgentAnalyzeResult>('agent:analyze', request),
+  cancelAgentAnalysis: (): Promise<boolean> => invokeAgentIpc<boolean>('agent:cancel-analysis'),
+  onInvestigationTimeline: (callback: (event: InvestigationTimelineEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, timelineEvent: InvestigationTimelineEvent) =>
+      callback(timelineEvent)
+    ipcRenderer.on('agent:investigation-timeline', handler)
+    return () => ipcRenderer.removeListener('agent:investigation-timeline', handler)
+  },
   getInvestigationStatus: (sessionId: string): Promise<InvestigationPublicStatus> =>
     invokeAgentIpc<InvestigationPublicStatus>('agent:investigation-status', { sessionId }),
   startInvestigation: (sessionId: string): Promise<InvestigationPublicStatus> =>
@@ -145,6 +191,10 @@ contextBridge.exposeInMainWorld('diskClean', {
   deleteRuleDraft: (draftId: string): Promise<boolean> => invokeAgentIpc('rules:deleteDraft', draftId),
   importRuleDraft: (): Promise<{ imported: boolean; draft: StoredRuleDraft | null }> =>
     invokeAgentIpc('rules:importDraft'),
+  updateRuleDraft: (draftId: string, patch: Record<string, unknown>): Promise<StoredRuleDraft> =>
+    invokeAgentIpc('rules:updateDraft', draftId, patch),
+  copyBuiltInRuleAsDraft: (ruleId: string): Promise<StoredRuleDraft> =>
+    invokeAgentIpc('rules:copyBuiltinAsDraft', ruleId),
   exportRuleWritingPack: (input: {
     sessionId: string
     candidateIds?: string[]

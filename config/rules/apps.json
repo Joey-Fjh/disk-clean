@@ -13,7 +13,10 @@
       "reason": "微信图片与视频缓存",
       "impact": "聊天记录保留，缓存需重新加载",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "reviewStatus": "conservative",
+      "confidence": "medium",
+      "notes": "不触及聊天记录、配置与数据库"
     },
     {
       "id": "wechat-media",
@@ -28,11 +31,13 @@
       "description": "可能是唯一副本，仅分析",
       "reason": "微信图片与视频文件",
       "impact": "删除后无法恢复聊天记录中的媒体",
-      "rebuildable": false
+      "rebuildable": false,
+      "reviewStatus": "verified",
+      "cleanupMethod": "manual"
     },
     {
       "id": "qq-preview-cache",
-      "name": "QQ 预览缓存",
+      "name": "QQ 接收文件与媒体",
       "category": "dangerous",
       "contentType": "user-data",
       "paths": ["%USERPROFILE%\\Documents\\Tencent Files"],
@@ -43,7 +48,9 @@
       "description": "用户接收的文件与媒体，仅分析",
       "reason": "QQ 图片、视频与接收文件",
       "impact": "可能是唯一副本，不可自动删除",
-      "rebuildable": false
+      "rebuildable": false,
+      "reviewStatus": "verified",
+      "cleanupMethod": "manual"
     },
     {
       "id": "downloads-installers",
@@ -57,7 +64,10 @@
       "reason": "超过 30 天的安装包文件",
       "impact": "已安装程序不受影响，未备份的安装包将丢失",
       "rebuildable": false,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "reviewStatus": "conservative",
+      "confidence": "medium",
+      "cleanupMethod": "trash"
     },
     {
       "id": "app-logs",
@@ -68,10 +78,12 @@
       "globDirs": ["**/Logs", "**/logs"],
       "maxDepth": 3,
       "defaultChecked": false,
+      "deletable": false,
       "reason": "各应用产生的日志目录",
       "impact": "排障时可能缺少历史日志",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "reviewStatus": "disabled",
+      "notes": "4.2 审计：%LOCALAPPDATA%/**/Logs 范围过宽，已禁用自动清理授权"
     }
   ]
 }

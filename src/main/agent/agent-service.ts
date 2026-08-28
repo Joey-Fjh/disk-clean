@@ -1,21 +1,33 @@
-import { homedir, userInfo } from 'os'
-import { AGENT_LIMITS } from '../../shared/agent-limits'
+import { randomUUID } from 'crypto'
+import { buildAgentInvestigationCandidates } from '../../shared/agent-candidate-prep'
+import {
+  buildCandidateRefIndex,
+  buildSessionFingerprint
+} from '../../shared/candidate-ref-index'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult, AgentAnalysisPublic } from '../../shared/agent-types'
 import type { ScanItem } from '../../shared/types'
 import { getScanSession, updateScanSessionCandidates } from '../scan/scan-session-store'
-import { getProtectedPaths } from '../rules'
+import { getProtectedPaths, getPathAccessPolicy } from '../rules'
 import { ProviderError } from '../provider/provider-errors'
-import { chatCompletion } from '../provider/provider-client'
 import { getProviderConfig, requireRunnableConfig } from '../provider/provider-service'
 import { applyAgentRecommendations } from './agent-candidate-mapper'
 import { AgentError } from './agent-errors'
 import { getAgentAnalysisState } from './agent-analysis-state'
-import { onNewScanSession, onScanSessionRevisionChanged } from './investigation/investigation-service'
+import {
+  cancelInvestigation,
+  onNewScanSession,
+  onScanSessionRevisionChanged
+} from './investigation/investigation-service'
 import { getInvestigationRuntime } from './investigation/investigation-runtime'
 import { getActiveScanSessionInfo } from '../scan/scan-session-store'
-import { buildAgentMessages } from './agent-prompt'
-import { filterRecommendationsByRefs, parseAgentModelResponse } from './agent-response'
-import { extractUserName } from './path-sanitize'
+import { filterRecommendationsByRefs } from './agent-response'
+import { clearCandidateRefMaps } from './investigation/candidate-ref'
+import {
+  createWebContentsTimelineSink,
+  setInvestigationTimelineSink
+} from './investigation/investigation-timeline-bus'
+import { runInvestigationOrchestration } from './investigation/investigation-orchestrator'
+import type { WebContents } from 'electron'
 
 export function notifyNewScanSession(sessionId: string): void {
   getAgentAnalysisState().markNewScanSession(sessionId)
@@ -23,6 +35,7 @@ export function notifyNewScanSession(sessionId: string): void {
   if (info?.sessionId === sessionId) {
     onNewScanSession(info.fingerprint)
   }
+  clearCandidateRefMaps()
 }
 
 export function markAgentScanStarting(): void {
@@ -33,6 +46,14 @@ export function markAgentScanStarting(): void {
 export function cancelAgentAnalysis(): void {
   getAgentAnalysisState().cancelActiveRun('cancelled')
   getInvestigationRuntime().cancelActive()
+  const info = getActiveScanSessionInfo()
+  if (info) {
+    try {
+      cancelInvestigation(info.sessionId)
+    } catch {
+      // ignore if investigation not active
+    }
+  }
 }
 
 function buildSkippedResult(sessionId: string): AgentAnalyzeResult {
@@ -48,7 +69,15 @@ function buildSkippedResult(sessionId: string): AgentAnalyzeResult {
   return { analysis, items: session ? [...session.candidates.values()] : [] }
 }
 
-export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<AgentAnalyzeResult> {
+export interface RunAgentAnalysisOptions {
+  webContents?: WebContents
+  isTrustedSender?: () => boolean
+}
+
+export async function runAgentAnalysis(
+  request: AgentAnalyzeRequest,
+  options: RunAgentAnalysisOptions = {}
+): Promise<AgentAnalyzeResult> {
   const sessionId = request.sessionId?.trim()
   if (!sessionId) {
     throw new AgentError('INVALID_INPUT', '无效的扫描会话')
@@ -94,26 +123,35 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
 
   const run = state.beginRun(sessionId)
   const requestId = run.requestId
+  const generation = randomUUID()
+  const fingerprint = buildSessionFingerprint(session.sessionId, session.createdAt, session.revision)
+  const refIndex = buildCandidateRefIndex(items, fingerprint, session.revision)
+  const pathPolicy = getPathAccessPolicy()
+  const investigationCandidates = buildAgentInvestigationCandidates(items, {
+    pathAccessPolicy: pathPolicy,
+    refIndex: { idToRef: refIndex.idToRef, fingerprint, revision: session.revision }
+  })
+
+  const timelineSink =
+    options.webContents && options.isTrustedSender
+      ? createWebContentsTimelineSink(options.webContents, options.isTrustedSender)
+      : null
+  setInvestigationTimelineSink(timelineSink)
 
   try {
-    const { config, apiKey } = requireRunnableConfig()
-    const userHome = homedir()
-    const userName = extractUserName(userHome) ?? userInfo().username
-    const { messages, build } = buildAgentMessages(items, { userHome, userName })
+    const { config, apiKey, profileId } = requireRunnableConfig()
+    const profile = { profileId, config, apiKey }
 
-    if (build.requestBytes > AGENT_LIMITS.MAX_REQUEST_BYTES) {
-      throw new AgentError('PROMPT_TOO_LARGE', '扫描摘要过大，无法发起分析')
-    }
-
-    const completion = await chatCompletion({
-      baseUrl: config.baseUrl,
-      apiKey,
-      model: config.model,
-      messages,
-      maxTokens: AGENT_LIMITS.ANALYSIS_MAX_TOKENS,
-      temperature: 0.2,
-      timeoutMs: AGENT_LIMITS.ANALYSIS_TIMEOUT_MS,
+    const orchestration = await runInvestigationOrchestration({
+      session,
+      refIndex,
+      investigationCandidates,
+      profile,
+      requestId,
+      generation,
       signal: run.abortController.signal,
+      isActive: () => state.isActiveRequest(requestId, sessionId),
+      pathAccessPolicy: pathPolicy,
       fetchFn: agentFetchOptions.fetchFn
     })
 
@@ -121,13 +159,15 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
       throw new AgentError('SESSION_STALE', '扫描会话已过期')
     }
 
-    const parsed = parseAgentModelResponse(completion.content)
-    const validRefs = new Set(build.refToId.keys())
-    const filtered = filterRecommendationsByRefs(parsed.recommendations, validRefs)
+    const validRefs = new Set([
+      ...orchestration.eligibleRefs,
+      ...orchestration.investigatedRefs
+    ])
+    const filtered = filterRecommendationsByRefs(orchestration.parsed.recommendations, validRefs)
     const { items: updatedItems, appliedCount } = applyAgentRecommendations(
       items,
       filtered.accepted,
-      build.refToId,
+      refIndex.refToId,
       getProtectedPaths()
     )
 
@@ -141,16 +181,22 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
 
     const analysis: AgentAnalysisPublic = {
       sessionId,
-      status: 'completed',
+      status: orchestration.uncertain ? 'completed' : 'completed',
       requestId,
-      headline: parsed.summary.headline,
-      overview: parsed.summary.overview,
-      analyzedCount: build.analyzedCount,
-      omittedCount: build.omittedCount,
+      headline: orchestration.parsed.summary.headline,
+      overview: orchestration.parsed.summary.overview,
+      analyzedCount: orchestration.eligibleRefs.size,
+      omittedCount: Math.max(0, items.length - orchestration.eligibleRefs.size),
       appliedCount,
-      skippedInvalidCount: parsed.skippedInvalidCount + filtered.skippedInvalidCount
+      skippedInvalidCount:
+        orchestration.parsed.skippedInvalidCount + filtered.skippedInvalidCount
     }
-    return { analysis, items: updatedItems }
+
+    return {
+      analysis,
+      items: updatedItems,
+      investigation: orchestration.investigation
+    }
   } catch (error) {
     if (!state.isLatestSession(sessionId)) {
       throw new AgentError('SESSION_STALE', '扫描会话已过期')
@@ -194,6 +240,7 @@ export async function runAgentAnalysis(request: AgentAnalyzeRequest): Promise<Ag
     }
     throw new AgentError('INTERNAL_ERROR', '智能分析失败')
   } finally {
+    setInvestigationTimelineSink(null)
     state.endRun(requestId)
   }
 }

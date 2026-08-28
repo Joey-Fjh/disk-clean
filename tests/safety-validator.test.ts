@@ -5,6 +5,7 @@ import type { CleanupAction, ScanCandidate } from '../src/shared/types'
 
 vi.mock('../src/main/rules', () => ({
   getProtectedPaths: () => [],
+  getPathAccessPolicy: () => ({ denyRead: [], readOnlyHighRisk: [], denyDelete: [] }),
   getAllRulesWithMeta: () => [
     {
       id: 'downloads-installers',

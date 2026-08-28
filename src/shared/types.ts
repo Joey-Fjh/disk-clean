@@ -47,6 +47,18 @@ export interface RuleConfig {
   cleanupStrategy?: CleanupStrategy
   deletable?: boolean
   nativeManaged?: boolean
+  /** 规则元数据（4.2+） */
+  source?: string
+  sourceUrl?: string
+  testedPlatforms?: string[]
+  testedVersions?: string[]
+  lastVerifiedAt?: string
+  requiresAppClosed?: boolean
+  cleanupMethod?: 'trash' | 'system-managed' | 'uninstall' | 'manual'
+  reviewStatus?: 'verified' | 'conservative' | 'disabled'
+  confidence?: 'high' | 'medium' | 'low'
+  exclusions?: string[]
+  notes?: string
 }
 
 export interface RuleWithMeta extends RuleConfig {
@@ -83,6 +95,13 @@ export type EntryKind = 'file' | 'directory'
 
 export type DiscoverySource = 'space-scan' | 'rule' | 'local-feature' | 'agent'
 
+/** 本地执行安全资格（与 UI `deletable` 分离）。 */
+export type LocalExecutionSafety =
+  | 'rule-eligible'
+  | 'agent-confirmable'
+  | 'advice-only'
+  | 'policy-blocked'
+
 export type JudgmentStatus = 'identifying' | 'pending' | 'suggested' | 'caution' | 'keep' | 'uncertain'
 
 export type JudgmentSource = 'legacy-rule' | 'agent' | 'local-policy' | 'none'
@@ -91,6 +110,7 @@ export type JudgmentOrigin =
   | 'local-rule'
   | 'local-rule-agent-reviewed'
   | 'agent-advice-only'
+  | 'agent-session'
   | 'space-evidence-only'
   | 'protected-policy'
 
@@ -151,6 +171,7 @@ export interface ScanItem {
   reason?: string
   impact?: string
   rebuildable?: boolean
+  requiresAppClosed?: boolean
   recoveryMode?: RecoveryMode
   ruleSource?: 'builtin' | 'custom'
   /** 发现来源（可多项）；legacy `source` 仅表示主来源。 */
@@ -171,6 +192,8 @@ export interface ScanItem {
   suggestedAction: SuggestedAction
   /** 空间占用观察；rule-backed 合并项的执行字段不得取自此处。 */
   occupancyObservation?: OccupancyObservation
+  /** 本地执行安全资格；决定能否走规则或 Agent 会话授权。 */
+  executionSafety?: LocalExecutionSafety
 }
 
 export type ScanCandidate = ScanItem
@@ -218,6 +241,45 @@ export interface CleanupRequest {
   candidateIds: string[]
 }
 
+export interface CleanupPrepareRequest {
+  sessionId: string
+  fingerprint: string
+  candidateIds: string[]
+}
+
+export interface CleanupExecuteRequest {
+  confirmationId: string
+}
+
+export interface CleanupPrepareRejection {
+  candidateId: string
+  message: string
+  code?: string
+}
+
+export interface CleanupPlanPreview {
+  confirmationId: string
+  itemCount: number
+  estimatedLogicalBytes: number
+  recommendedCleanCount: number
+  cautionCleanCount: number
+  requiresAppClosedCount: number
+  basisSummaries: string[]
+  rejectedCount: number
+  approvedCandidateIds: string[]
+  rejectedAtPrepare: CleanupPrepareRejection[]
+  expiresAt: number
+}
+
+export interface CleanupPostReview {
+  removedCount: number
+  stillPresentCount: number
+  failedCount: number
+  disappearedPaths: string[]
+  stillPresentPaths: string[]
+  failedPaths: string[]
+}
+
 export interface CleanupError {
   path: string
   message: string
@@ -236,13 +298,14 @@ export interface CleanupResult {
   failed: number
   succeeded: string[]
   errors: CleanupError[]
-  rejected: Array<{ path: string; reason: string }>
+  rejected: Array<{ path: string; reason: string; code?: string }>
+  postReview?: CleanupPostReview
 }
 
 export const CANDIDATE_TAB_LABELS: Record<Category, string> = {
   safe: '建议清理',
   recommended: '谨慎处理',
-  dangerous: '待判断 / 不建议'
+  dangerous: '仅展示 / 禁止清理'
 }
 
 /** @deprecated 使用 CANDIDATE_TAB_LABELS；保留别名避免外部引用断裂 */
@@ -257,7 +320,7 @@ export const RULE_CATEGORY_LABELS: Record<Category, string> = {
 export const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
   safe: '明确缓存 / 临时文件，规则精确匹配',
   recommended: '可重建但有成本，默认不勾选',
-  dangerous: '等待判断或不建议清理；当前版本空间发现项显示为待判断，尚未启用智能判断'
+  dangerous: '仅展示或禁止自动清理；空间占用与高风险项请查看对应分类'
 }
 
 export const CATEGORY_ORDER: Category[] = ['safe', 'recommended', 'dangerous']

@@ -1,7 +1,12 @@
 import { join, relative, resolve } from 'path'
 import { lstat, realpath } from 'fs/promises'
 import type { ScanCandidate } from '../../../shared/types'
-import { expandEnvVars, isPathUnderRoot, isProtectedPath, normalizePath } from '../../../shared/path-utils'
+import { expandEnvVars, isPathUnderRoot, normalizePath } from '../../../shared/path-utils'
+import {
+  DEFAULT_PATH_ACCESS_POLICY,
+  isPathReadableForInvestigation,
+  type PathAccessPolicy
+} from '../../../shared/path-access-policy'
 import { InvestigationError } from './investigation-errors'
 
 const NULL_BYTE = /\0/
@@ -41,12 +46,12 @@ export function normalizeRelativePath(input: string | undefined): string {
 async function assertLogicalSegmentPathSafe(
   candidateRoot: string,
   targetPath: string,
-  protectedPaths: string[]
+  accessPolicy: PathAccessPolicy
 ): Promise<void> {
-  if (isProtectedPath(candidateRoot, protectedPaths)) {
+  if (!isPathReadableForInvestigation(candidateRoot, accessPolicy)) {
     throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
   }
-  if (isProtectedPath(targetPath, protectedPaths)) {
+  if (!isPathReadableForInvestigation(targetPath, accessPolicy)) {
     throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
   }
 
@@ -70,7 +75,7 @@ async function assertLogicalSegmentPathSafe(
     if (info.isSymbolicLink()) {
       throw new InvestigationError('REPARSE_POINT_BLOCKED', '符号链接或联接点不允许')
     }
-    if (isProtectedPath(next, protectedPaths)) {
+    if (!isPathReadableForInvestigation(next, accessPolicy)) {
       throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
     }
     current = next
@@ -81,7 +86,9 @@ export async function resolveInvestigationPath(options: {
   candidate: ScanCandidate
   relativePath?: string
   protectedPaths: string[]
+  accessPolicy?: PathAccessPolicy
 }): Promise<ResolvedInvestigationPath> {
+  const accessPolicy = options.accessPolicy ?? DEFAULT_PATH_ACCESS_POLICY
   const relativePath = normalizeRelativePath(options.relativePath)
   const candidateRoot = resolve(expandEnvVars(options.candidate.path))
 
@@ -97,11 +104,11 @@ export async function resolveInvestigationPath(options: {
     throw new InvestigationError('PATH_OUTSIDE_CANDIDATE', '目标路径超出候选范围')
   }
 
-  if (isProtectedPath(targetPath, options.protectedPaths)) {
+  if (!isPathReadableForInvestigation(targetPath, accessPolicy)) {
     throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
   }
 
-  await assertLogicalSegmentPathSafe(candidateRoot, targetPath, options.protectedPaths)
+  await assertLogicalSegmentPathSafe(candidateRoot, targetPath, accessPolicy)
 
   let realCandidateRoot: string
   try {
@@ -110,7 +117,7 @@ export async function resolveInvestigationPath(options: {
     throw new InvestigationError('IO_ERROR', '无法读取候选目录')
   }
 
-  if (isProtectedPath(realCandidateRoot, options.protectedPaths)) {
+  if (!isPathReadableForInvestigation(realCandidateRoot, accessPolicy)) {
     throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
   }
 
@@ -129,7 +136,7 @@ export async function resolveInvestigationPath(options: {
     throw new InvestigationError('PATH_OUTSIDE_CANDIDATE', '目标路径超出候选范围')
   }
 
-  if (isProtectedPath(realTarget, options.protectedPaths)) {
+  if (!isPathReadableForInvestigation(realTarget, accessPolicy)) {
     throw new InvestigationError('PROTECTED_PATH', '目标路径受保护')
   }
 

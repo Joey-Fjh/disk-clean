@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { ScanCandidate, ScanMode } from '../../shared/types'
+import { invalidateCleanupConfirmationsForSession } from '../cleanup/cleanup-confirmation-store'
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 
@@ -34,6 +35,7 @@ export function createScanSession(
     rulesVersion,
     candidates: new Map(candidates.map((c) => [c.id, c]))
   }
+  invalidateCleanupConfirmationsForSession()
   activeSession = session
   return session
 }
@@ -68,6 +70,7 @@ export function getActiveScanSessionInfo(): {
 }
 
 export function clearScanSession(): void {
+  invalidateCleanupConfirmationsForSession()
   activeSession = null
 }
 
@@ -79,5 +82,6 @@ export function updateScanSessionCandidates(sessionId: string, candidates: ScanC
   }
   activeSession.candidates = new Map(candidates.map((candidate) => [candidate.id, candidate]))
   activeSession.revision += 1
+  invalidateCleanupConfirmationsForSession(sessionId)
   return true
 }

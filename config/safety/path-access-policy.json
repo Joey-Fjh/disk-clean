@@ -1,0 +1,14 @@
+{
+  "denyRead": [
+    "%SystemDrive%\\",
+    "%SystemRoot%\\System32",
+    "%SystemRoot%\\SysWOW64",
+    "%SystemRoot%\\WinSxS",
+    "%SystemRoot%\\Installer"
+  ],
+  "readOnlyHighRisk": [
+    "%ProgramFiles%",
+    "%ProgramFiles(x86)%"
+  ],
+  "denyDelete": []
+}

@@ -288,6 +288,7 @@ export class InvestigationRuntime {
   }
 
   private finalizeTerminal(run: InvestigationRunState): InvestigationPublicStatus {
+    this.clearInvestigationTimer(run)
     if (run.abortReason) {
       this.finalizedAbortReasons.set(run.requestId, run.abortReason)
     }

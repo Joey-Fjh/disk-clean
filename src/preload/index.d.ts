@@ -1,9 +1,11 @@
 import type {
-  ProviderConfigPublic,
+  CreateProviderProfileInput,
+  ProviderProfilesPublicState,
   ProviderTestResult,
-  SaveProviderConfigInput
+  UpdateProviderProfileInput
 } from '../shared/provider-types'
 import type { AgentAnalyzeRequest, AgentAnalyzeResult } from '../shared/agent-types'
+import type { InvestigationTimelineEvent } from '../shared/investigation-timeline-types'
 import type {
   InvestigationExecuteToolResult,
   InvestigationPublicStatus,
@@ -17,7 +19,9 @@ import type {
   StoredRuleDraft
 } from '../shared/rule-layer-types'
 import type {
-  CleanupRequest,
+  CleanupExecuteRequest,
+  CleanupPlanPreview,
+  CleanupPrepareRequest,
   CleanupResult,
   RuleWithMeta,
   ScanItem,
@@ -32,19 +36,31 @@ export interface DiskCleanAPI {
   cancelScan: () => Promise<void>
   onScanProgress: (callback: (progress: ScanProgress) => void) => () => void
   onScanItems: (callback: (items: ScanItem[]) => void) => () => void
-  executeCleanup: (request: CleanupRequest) => Promise<CleanupResult>
+  getScanSessionInfo: () => Promise<{
+    sessionId: string
+    fingerprint: string
+    drive: string
+    candidateCount: number
+    revision: number
+  } | null>
+  prepareCleanup: (request: CleanupPrepareRequest) => Promise<CleanupPlanPreview>
+  executeConfirmedCleanup: (request: CleanupExecuteRequest) => Promise<CleanupResult>
   listRules: () => Promise<RuleWithMeta[]>
   setRuleEnabled: (ruleId: string, enabled: boolean) => Promise<RuleWithMeta[]>
   removeRule: (ruleId: string) => Promise<{ removed: boolean; rules: RuleWithMeta[] }>
   resetRules: () => Promise<RuleWithMeta[]>
   importRules: () => Promise<{ imported: number; rules: RuleWithMeta[]; draftOnly?: boolean }>
   openInExplorer: (targetPath: string) => Promise<void>
-  getProviderConfig: () => Promise<ProviderConfigPublic | null>
-  saveProviderConfig: (input: SaveProviderConfigInput) => Promise<ProviderConfigPublic>
-  deleteProviderApiKey: () => Promise<ProviderConfigPublic | null>
-  testProviderConnection: () => Promise<ProviderTestResult>
-  testProviderCapability: () => Promise<ProviderTestResult>
+  listProviderProfiles: () => Promise<ProviderProfilesPublicState>
+  createProviderProfile: (input: CreateProviderProfileInput) => Promise<ProviderProfilesPublicState>
+  updateProviderProfile: (input: UpdateProviderProfileInput) => Promise<ProviderProfilesPublicState>
+  deleteProviderProfile: (profileId: string) => Promise<ProviderProfilesPublicState>
+  setActiveProviderProfile: (profileId: string) => Promise<ProviderProfilesPublicState>
+  testProviderConnection: (profileId: string) => Promise<ProviderTestResult>
+  testProviderCapability: (profileId: string) => Promise<ProviderTestResult>
   analyzeScan: (request: AgentAnalyzeRequest) => Promise<AgentAnalyzeResult>
+  cancelAgentAnalysis: () => Promise<boolean>
+  onInvestigationTimeline: (callback: (event: InvestigationTimelineEvent) => void) => () => void
   getInvestigationStatus: (sessionId: string) => Promise<InvestigationPublicStatus>
   startInvestigation: (sessionId: string) => Promise<InvestigationPublicStatus>
   cancelInvestigation: (sessionId: string) => Promise<InvestigationPublicStatus>
@@ -68,6 +84,8 @@ export interface DiskCleanAPI {
   rejectRuleDraft: (draftId: string) => Promise<boolean>
   deleteRuleDraft: (draftId: string) => Promise<boolean>
   importRuleDraft: () => Promise<{ imported: boolean; draft: StoredRuleDraft | null }>
+  updateRuleDraft: (draftId: string, patch: Record<string, unknown>) => Promise<StoredRuleDraft>
+  copyBuiltInRuleAsDraft: (ruleId: string) => Promise<StoredRuleDraft>
   exportRuleWritingPack: (input: {
     sessionId: string
     candidateIds?: string[]

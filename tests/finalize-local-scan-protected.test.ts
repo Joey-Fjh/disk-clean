@@ -41,11 +41,11 @@ describe('finalizeLocalScanItems protected policy', () => {
     const normalized = normalizeCandidate(finalized)
 
     expect(normalized.judgment.judgmentOrigin).toBe('protected-policy')
-    expect(normalized.judgment.status).toBe('keep')
+    expect(normalized.judgment.status).toBe('uncertain')
     expect(normalized.deletable).toBe(false)
     expect(normalized.selection.selectable).toBe(false)
     expect(normalized.suggestedAction).toBe('none')
-    expect(normalized.judgment.basis).toContain('命中受保护路径，禁止清理')
+    expect(normalized.judgment.basis[0]).toContain('仅统计空间占用')
   })
 
   it('still finalizes identifying space items without protected override', () => {

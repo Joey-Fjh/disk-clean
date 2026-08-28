@@ -1,0 +1,36 @@
+export type CleanupErrorCode =
+  | 'SESSION_STALE'
+  | 'CANDIDATE_NOT_FOUND'
+  | 'SNAPSHOT_STALE'
+  | 'NOT_AUTHORIZED'
+  | 'PROTECTED_PATH'
+  | 'ACTION_NOT_ALLOWED'
+  | 'CONFIRMATION_REQUIRED'
+  | 'CONFIRMATION_EXPIRED'
+  | 'CONFIRMATION_ALREADY_USED'
+  | 'CONFIRMATION_NOT_FOUND'
+  | 'CONFIRMATION_STORE_FULL'
+  | 'CLEANUP_PARTIAL_FAILURE'
+  | 'CANCELLED'
+  | 'INVALID_INPUT'
+  | 'IPC_UNAUTHORIZED'
+  | 'INTERNAL_ERROR'
+
+export const CLEANUP_ERROR_MESSAGES: Record<CleanupErrorCode, string> = {
+  SESSION_STALE: '扫描会话已过期或快照不一致',
+  CANDIDATE_NOT_FOUND: '候选项不属于当前扫描会话',
+  SNAPSHOT_STALE: '目标自扫描后已发生变化，请重新扫描',
+  NOT_AUTHORIZED: '当前候选项未获得清理授权',
+  PROTECTED_PATH: '路径在系统保护范围内',
+  ACTION_NOT_ALLOWED: '该候选项不允许普通删除',
+  CONFIRMATION_REQUIRED: '需要先确认清理计划',
+  CONFIRMATION_EXPIRED: '清理确认已过期，请重新生成计划',
+  CONFIRMATION_ALREADY_USED: '清理确认已使用',
+  CONFIRMATION_NOT_FOUND: '清理确认无效',
+  CONFIRMATION_STORE_FULL: '清理确认存储已满，请稍后重试',
+  CLEANUP_PARTIAL_FAILURE: '部分项目未能移入回收站',
+  CANCELLED: '清理已取消',
+  INVALID_INPUT: '无效的清理请求',
+  IPC_UNAUTHORIZED: '未授权的清理请求',
+  INTERNAL_ERROR: '清理失败'
+}

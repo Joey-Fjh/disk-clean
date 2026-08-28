@@ -316,7 +316,7 @@ describe('renderer scan UI', () => {
     expect(html).not.toContain('id="mode-select"')
     expect(html).not.toContain('第 0/0 条规则')
     expect(html).not.toContain('按规则列出')
-    expect(html).toContain('扫描磁盘空间、收集本地证据，并形成待判断的清理候选项')
+    expect(html).toContain('一次扫描完成空间整理、本地规则与智能分析，形成统一清理建议')
     expect(html).not.toContain('仅分析')
   })
 })

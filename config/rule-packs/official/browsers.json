@@ -12,59 +12,78 @@
       "name": "Chrome 缓存",
       "category": "safe",
       "contentType": "browser-cache",
-      "paths": [
-        "%LOCALAPPDATA%\\Google\\Chrome\\User Data"
-      ],
+      "paths": ["%LOCALAPPDATA%\\Google\\Chrome\\User Data"],
       "globDirs": [
-        "**/Cache",
-        "**/Code Cache",
-        "**/GPUCache"
+        "Default\\Cache",
+        "Default\\Code Cache",
+        "Default\\GPUCache",
+        "GrShaderCache",
+        "ShaderCache"
       ],
-      "maxDepth": 4,
+      "maxDepth": 3,
       "defaultChecked": true,
-      "reason": "浏览器页面与资源缓存",
-      "impact": "首次打开网页可能稍慢",
+      "reason": "Chrome 默认配置档下的页面与资源缓存",
+      "impact": "首次打开网页可能稍慢；不影响 Cookie、历史、扩展与登录状态",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "source": "Google Chrome 用户数据目录结构",
+      "sourceUrl": "https://support.google.com/chrome/answer/2392709",
+      "testedPlatforms": ["windows"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "exclusions": ["Cookies", "History", "Login Data", "Web Data", "Preferences", "Extensions"],
+      "cleanupMethod": "trash"
     },
     {
       "id": "edge-cache",
       "name": "Edge 缓存",
       "category": "safe",
       "contentType": "browser-cache",
-      "paths": [
-        "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data"
-      ],
+      "paths": ["%LOCALAPPDATA%\\Microsoft\\Edge\\User Data"],
       "globDirs": [
-        "**/Cache",
-        "**/Code Cache",
-        "**/GPUCache"
+        "Default\\Cache",
+        "Default\\Code Cache",
+        "Default\\GPUCache",
+        "GrShaderCache",
+        "ShaderCache"
       ],
-      "maxDepth": 4,
+      "maxDepth": 3,
       "defaultChecked": true,
-      "reason": "浏览器页面与资源缓存",
-      "impact": "首次打开网页可能稍慢",
+      "reason": "Edge 默认配置档下的页面与资源缓存",
+      "impact": "首次打开网页可能稍慢；不影响 Cookie、历史、扩展与登录状态",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "source": "Microsoft Edge 用户数据目录结构",
+      "testedPlatforms": ["windows"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "exclusions": ["Cookies", "History", "Login Data", "Web Data", "Preferences", "Extensions"],
+      "cleanupMethod": "trash"
     },
     {
       "id": "firefox-cache",
       "name": "Firefox 缓存",
       "category": "safe",
       "contentType": "browser-cache",
-      "paths": [
-        "%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles"
-      ],
-      "globDirs": [
-        "**/cache2",
-        "**/startupCache"
-      ],
+      "paths": ["%LOCALAPPDATA%\\Mozilla\\Firefox\\Profiles"],
+      "globDirs": ["cache2", "startupCache"],
       "maxDepth": 3,
       "defaultChecked": true,
       "reason": "Firefox 配置目录下的缓存",
-      "impact": "首次打开网页可能稍慢",
+      "impact": "首次打开网页可能稍慢；不影响配置、Cookie 与登录状态",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "source": "Mozilla Firefox 配置目录结构",
+      "testedPlatforms": ["windows"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "cleanupMethod": "trash"
     }
   ]
 }

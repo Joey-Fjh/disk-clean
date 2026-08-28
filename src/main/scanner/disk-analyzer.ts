@@ -62,10 +62,10 @@ async function analyzePath(
   return enrichCandidate(path, size, {
       name,
       contentType: protectedHit ? 'system-protected' : info.isFile() ? 'large-file' : 'large-dir',
-      category: 'dangerous',
+      category: 'recommended',
       deletable: false,
       reason,
-      impact: protectedHit ? '不可直接删除' : '仅展示占用，不判断是否为垃圾',
+      impact: protectedHit ? '仅统计空间占用，不提供普通删除授权' : '仅展示占用，不判断是否为垃圾',
       entryKind,
       sizePartial
     })

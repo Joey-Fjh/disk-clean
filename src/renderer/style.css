@@ -393,6 +393,111 @@ input:focus-visible,
   gap: 12px;
 }
 
+.provider-settings-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.provider-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.provider-section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.provider-profile-list {
+  display: grid;
+  gap: 12px;
+}
+
+.provider-profile-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 10px;
+}
+
+.provider-profile-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-profile-card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.provider-profile-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-soft, rgba(59, 130, 246, 0.12));
+  color: var(--primary);
+}
+
+.provider-profile-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.provider-profile-meta-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.provider-profile-meta-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.provider-profile-meta-value {
+  word-break: break-all;
+}
+
+.provider-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-profile-delete {
+  margin-left: auto;
+}
+
+.provider-empty-state {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.provider-empty-state p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
 .provider-saved-summary {
   display: grid;
   gap: 8px;
@@ -510,6 +615,23 @@ input:focus-visible,
 .agent-analysis-overview,
 .agent-analysis-meta {
   font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.agent-investigation-timeline {
+  margin-top: 0.5rem;
+}
+
+.agent-investigation-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.agent-timeline-item {
+  font-size: 0.82rem;
   color: var(--text-muted);
 }
 

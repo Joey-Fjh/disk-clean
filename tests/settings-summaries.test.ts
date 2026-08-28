@@ -19,15 +19,26 @@ describe('settings summaries', () => {
 
   it('formats provider summary for configured and unconfigured states', () => {
     expect(formatProviderSummary(null)).toBe('未配置')
-    const config: ProviderConfigPublic = {
-      providerId: 'openai',
-      protocol: 'openai-chat-completions',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
-      hasKey: true,
-      keyLastFour: '4821'
-    }
-    expect(formatProviderSummary(config)).toBe('已配置 · ****4821')
+    expect(
+      formatProviderSummary({
+        activeProfileId: 'p1',
+        profiles: [
+          {
+            id: 'p1',
+            name: '我的 OpenAI',
+            providerId: 'openai',
+            protocol: 'openai-chat-completions',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-4o-mini',
+            hasKey: true,
+            keyLastFour: '4821',
+            isActive: true,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z'
+          }
+        ]
+      })
+    ).toBe('我的 OpenAI · ****4821')
   })
 
   it('formats rules summary with enabled count', () => {

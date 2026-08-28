@@ -1,4 +1,4 @@
-export type RuleExtensionStep = 'idle' | 'select' | 'action' | 'complete'
+export type RuleExtensionStep = 'idle' | 'select' | 'action' | 'preview' | 'complete'
 
 let active = false
 let step: RuleExtensionStep = 'idle'
@@ -28,28 +28,33 @@ function syncCardVisibility(): void {
   card.hidden = false
   const stepSelect = document.getElementById('rule-extension-step-select')
   const stepAction = document.getElementById('rule-extension-step-action')
+  const stepPreview = document.getElementById('rule-extension-step-preview')
   const stepComplete = document.getElementById('rule-extension-step-complete')
   if (stepSelect) stepSelect.hidden = step !== 'select'
   if (stepAction) stepAction.hidden = step !== 'action'
+  if (stepPreview) stepPreview.hidden = step !== 'preview'
   if (stepComplete) stepComplete.hidden = step !== 'complete'
 
   if (step === 'action') {
     const actionDesc = document.getElementById('rule-extension-action-desc')
     const generateBtn = document.getElementById('generate-rule-draft-btn')
     const exportBtn = document.getElementById('export-writing-pack-btn')
+    const importBtn = document.getElementById('import-rule-draft-inline-btn')
     if (providerHasKey) {
       if (actionDesc) {
         actionDesc.textContent = '将根据所选样本生成一条待确认的识别规则。'
       }
       if (generateBtn) generateBtn.hidden = false
       if (exportBtn) exportBtn.hidden = true
+      if (importBtn) importBtn.hidden = true
     } else {
       if (actionDesc) {
         actionDesc.textContent =
-          '未配置模型。可以导出规则资料，交给外部工具生成规则 JSON，导入后仍需预览并启用。'
+          '未配置模型。可以导出规则资料或导入 JSON，导入后仍需预览并启用。'
       }
       if (generateBtn) generateBtn.hidden = true
       if (exportBtn) exportBtn.hidden = false
+      if (importBtn) importBtn.hidden = false
     }
   }
 }
@@ -81,6 +86,18 @@ export function backToSelectStep(): void {
   syncCardVisibility()
 }
 
+export function backToActionStep(): void {
+  if (!active) return
+  step = 'action'
+  syncCardVisibility()
+}
+
+export function showPreviewStep(): void {
+  if (!active) return
+  step = 'preview'
+  syncCardVisibility()
+}
+
 export function showCompleteStep(message: string): void {
   if (!active) return
   step = 'complete'
@@ -100,14 +117,17 @@ export function shouldShowExtensionEntry(options: {
   scanning: boolean
   hasSession: boolean
   cancelled?: boolean
+  extensionCandidateCount?: number
+  /** @deprecated 使用 extensionCandidateCount */
   dangerousCandidateCount?: number
 }): boolean {
+  const count = options.extensionCandidateCount ?? options.dangerousCandidateCount ?? 0
   return (
     !options.scanning &&
     options.hasSession &&
     options.cancelled !== true &&
     !active &&
-    (options.dangerousCandidateCount ?? 0) > 0
+    count > 0
   )
 }
 
@@ -121,7 +141,7 @@ export function wireRuleExtensionMode(options: {
   onExit: () => void
   onNext: () => void | Promise<void>
   onBackToSelect: () => void
-  onOpenSettings: () => void
+  onOpenSettings?: () => void
   onBackToResults: () => void
   getSelectedCount: () => number
 }): void {
@@ -146,6 +166,6 @@ export function wireRuleExtensionMode(options: {
   })
 
   document.getElementById('rule-extension-open-settings')?.addEventListener('click', () => {
-    options.onOpenSettings()
+    options.onOpenSettings?.()
   })
 }

@@ -1,4 +1,5 @@
 import type { ScanItem } from './types'
+import type { InvestigationSummary } from './investigation-timeline-types'
 
 export const AGENT_SCHEMA_VERSION = '1' as const
 
@@ -56,6 +57,7 @@ export interface AgentAnalysisPublic {
 export interface AgentAnalyzeResult {
   analysis: AgentAnalysisPublic
   items: ScanItem[]
+  investigation?: InvestigationSummary
 }
 
 export interface AgentAnalyzeRequest {

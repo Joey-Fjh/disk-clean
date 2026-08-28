@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { handleAgentAnalyze } from '../src/main/agent/agent-ipc'
+import { handleAgentAnalyze, handleAgentCancel } from '../src/main/agent/agent-ipc'
 import { clearScanSession, createScanSession } from '../src/main/scan/scan-session-store'
 import {
   AgentAnalysisState,
@@ -86,6 +86,13 @@ describe('agent ipc security', () => {
     const result = await handleAgentAnalyze({ sender: { id: 1 } } as never, {
       sessionId: 'x'
     })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.code).toBe('IPC_UNAUTHORIZED')
+  })
+
+  it('rejects untrusted sender for cancel analysis', async () => {
+    setTrustedSenderCheckerForTests(() => false)
+    const result = await handleAgentCancel({ sender: { id: 1 } } as never)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.code).toBe('IPC_UNAUTHORIZED')
   })

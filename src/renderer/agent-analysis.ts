@@ -1,5 +1,13 @@
 import type { AgentAnalysisPublic } from '../shared/agent-types'
 import type { ScanItem } from '../shared/types'
+import {
+  appendInvestigationTimelineEvent,
+  beginInvestigationTimeline,
+  getActiveTimelineGeneration,
+  mergeInvestigationTimelineFromResult,
+  resetInvestigationTimeline,
+  wireInvestigationTimelineSubscription
+} from './agent-investigation-timeline'
 
 export type AgentUiPhase = 'idle' | 'running' | 'completed' | 'skipped' | 'failed'
 
@@ -13,10 +21,16 @@ const headlineEl = () => document.getElementById('agent-analysis-headline') as H
 const overviewEl = () => document.getElementById('agent-analysis-overview') as HTMLElement | null
 const metaEl = () => document.getElementById('agent-analysis-meta') as HTMLElement | null
 const retryBtn = () => document.getElementById('agent-analysis-retry') as HTMLButtonElement | null
+const stopBtn = () => document.getElementById('agent-analysis-stop') as HTMLButtonElement | null
 const settingsLink = () => document.getElementById('agent-analysis-settings-link') as HTMLButtonElement | null
+const panelClean = () => document.getElementById('panel-clean') as HTMLElement | null
 
 export function getCurrentAgentAnalysis(): AgentAnalysisPublic | null {
   return currentAnalysis
+}
+
+export function isAgentAnalysisRunning(): boolean {
+  return currentAnalysis?.status === 'running'
 }
 
 export function shouldAutoAnalyzeAfterScan(cancelled: boolean): boolean {
@@ -25,6 +39,13 @@ export function shouldAutoAnalyzeAfterScan(cancelled: boolean): boolean {
 
 function isStaleGeneration(generation: number): boolean {
   return generation !== analysisGeneration
+}
+
+function preservePanelScroll(callback: () => void): void {
+  const panel = panelClean()
+  const scrollTop = panel?.scrollTop ?? 0
+  callback()
+  if (panel) panel.scrollTop = scrollTop
 }
 
 function renderBanner(): void {
@@ -68,8 +89,10 @@ function renderBanner(): void {
   metaEl()!.textContent = metaParts.join(' · ')
 
   const retry = retryBtn()
+  const stop = stopBtn()
   const settings = settingsLink()
   if (retry) retry.hidden = analysis.status !== 'failed'
+  if (stop) stop.hidden = analysis.status !== 'running'
   if (settings) settings.hidden = analysis.status !== 'skipped_no_provider'
 }
 
@@ -78,6 +101,7 @@ export function resetAgentAnalysisUi(): void {
   activeRequest = null
   currentAnalysis = null
   autoAnalyzeSessionId = null
+  resetInvestigationTimeline()
   const banner = bannerEl()
   if (banner) banner.hidden = true
 }
@@ -97,6 +121,7 @@ export function onScanCancelledNoAnalysis(sessionId: string): void {
 }
 
 export function onAgentAnalysisStart(sessionId: string): void {
+  beginInvestigationTimeline(sessionId)
   currentAnalysis = {
     sessionId,
     status: 'running',
@@ -105,12 +130,12 @@ export function onAgentAnalysisStart(sessionId: string): void {
     appliedCount: 0,
     skippedInvalidCount: 0
   }
-  renderBanner()
+  preservePanelScroll(() => renderBanner())
 }
 
 export function onAgentAnalysisComplete(analysis: AgentAnalysisPublic): void {
   currentAnalysis = analysis
-  renderBanner()
+  preservePanelScroll(() => renderBanner())
 }
 
 export function onAgentAnalysisFailed(sessionId: string, message: string): void {
@@ -123,12 +148,39 @@ export function onAgentAnalysisFailed(sessionId: string, message: string): void 
     skippedInvalidCount: 0,
     errorMessage: message
   }
-  renderBanner()
+  preservePanelScroll(() => renderBanner())
+}
+
+export function onAgentAnalysisCancelled(sessionId: string): void {
+  const generation = getActiveTimelineGeneration()
+  if (generation) {
+    appendInvestigationTimelineEvent({
+      schemaVersion: 1,
+      type: 'cancelled',
+      sessionId,
+      generation,
+      at: Date.now(),
+      message: '智能分析已停止'
+    })
+  }
+  currentAnalysis = {
+    sessionId,
+    status: 'cancelled',
+    headline: '智能复核已停止',
+    overview: '本地分析已完成，本地规则建议仍可使用。',
+    analyzedCount: 0,
+    omittedCount: 0,
+    appliedCount: 0,
+    skippedInvalidCount: 0
+  }
+  preservePanelScroll(() => renderBanner())
 }
 
 export interface AgentAnalysisCallbacks {
-  onItemsUpdated: (items: ScanItem[]) => void
-  onFailed?: () => void
+  onItemsUpdated: (items: ScanItem[]) => void | Promise<void>
+  onFailed?: () => void | Promise<void>
+  onCancelled?: () => void | Promise<void>
+  onStart?: () => void
   openSettings: () => void
 }
 
@@ -157,6 +209,7 @@ export function runAgentAnalysisForSession(
 
   if (!isStaleGeneration(generation)) {
     onAgentAnalysisStart(sessionId)
+    callbacks.onStart?.()
   }
 
   const promise = (async () => {
@@ -166,13 +219,24 @@ export function runAgentAnalysisForSession(
         retry: options.retry === true
       })
       if (isStaleGeneration(generation)) return
+      mergeInvestigationTimelineFromResult(
+        sessionId,
+        result.investigation?.generation,
+        result.investigation?.timeline
+      )
       onAgentAnalysisComplete(result.analysis)
-      callbacks.onItemsUpdated(result.items)
+      await callbacks.onItemsUpdated(result.items)
     } catch (error) {
       if (isStaleGeneration(generation)) return
       const message = error instanceof Error ? error.message : String(error)
+      const code = error instanceof Error && 'code' in error ? String((error as { code?: string }).code) : ''
+      if (code === 'CANCELLED') {
+        onAgentAnalysisCancelled(sessionId)
+        await callbacks.onCancelled?.()
+        return
+      }
       onAgentAnalysisFailed(sessionId, message)
-      callbacks.onFailed?.()
+      await callbacks.onFailed?.()
     } finally {
       if (activeRequest?.generation === generation) {
         activeRequest = null
@@ -185,10 +249,23 @@ export function runAgentAnalysisForSession(
 }
 
 export function wireAgentAnalysisUi(callbacks: AgentAnalysisCallbacks): void {
+  wireInvestigationTimelineSubscription()
   retryBtn()?.addEventListener('click', () => {
     const sessionId = currentAnalysis?.sessionId
     if (!sessionId || currentAnalysis?.status !== 'failed') return
     void runAgentAnalysisForSession(sessionId, callbacks, { retry: true })
   })
+  stopBtn()?.addEventListener('click', () => {
+    if (currentAnalysis?.status !== 'running') return
+    void window.diskClean.cancelAgentAnalysis()
+  })
   settingsLink()?.addEventListener('click', () => callbacks.openSettings())
 }
+
+export function handleInvestigationTimelineEventForTests(
+  event: Parameters<typeof appendInvestigationTimelineEvent>[0]
+): void {
+  appendInvestigationTimelineEvent(event)
+}
+
+export { getActiveTimelineGeneration }

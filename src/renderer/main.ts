@@ -3,19 +3,24 @@ import './settings-page'
 import './provider-settings'
 import type { Category, ScanError, ScanItem, ScanResult } from '../shared/types'
 import {
-  CANDIDATE_TAB_LABELS,
+  CLEANUP_DISPLAY_CATEGORY_DESCRIPTIONS,
+  CLEANUP_DISPLAY_CATEGORY_LABELS,
+  type CleanupDisplayCategory,
+  groupItemsByDisplayCategory
+} from '../shared/cleanup-display-category'
+import {
   CATEGORY_DESCRIPTIONS,
-  CATEGORY_ORDER,
   CONTENT_TYPE_LABELS,
   RULE_CATEGORY_LABELS,
   SCAN_PHASE_LABELS
 } from '../shared/types'
 import { formatBytes } from '../shared/format-bytes'
+import { activeProfileHasKey } from '../shared/provider-profile-utils'
 import { showConfirmDialog } from './confirm-dialog'
 import { upsertScanItems } from '../shared/scan-item-accumulator'
 import { normalizeCandidate } from '../shared/candidate-model'
 import { RuleGroupExpansionState } from './rule-group-state'
-import { ResultCategoryViewState } from './result-category-state'
+import { ResultCategoryViewState, CLEANUP_DISPLAY_CATEGORY_ORDER } from './result-category-state'
 import { CandidateSelectionViewState } from './candidate-selection-state'
 import { buildScanItemRenderInput } from './candidate-render'
 import { createScanItemElement } from './safe-render'
@@ -26,12 +31,38 @@ import {
 } from './settings-summaries'
 import { preservePanelScrollTop, switchMainTabPanel } from './panel-scroll'
 import {
+  buildCleanupOutcomeManifest,
+  buildCleanupRescanComparison,
+  formatCleanupOutcomeSummary,
+  formatCleanupRescanComparison,
+} from './cleanup-result-state'
+import {
+  applyPostCleanupRescanFailure,
+  applyPostCleanupRescanFinish,
+  beginPostCleanupRescanSession,
+  buildPostCleanupRescanScanOptions,
+  canRetryPostCleanupRescan,
+  commitScanPreflight,
+  createPostCleanupRescanSession,
+  isPostCleanupRescanActive,
+  markPostCleanupRescanIdle,
+  planScanPreflight,
+  reducePostCleanupRescanSession,
+  resolvePersistentCleanupStatusText,
+  resolveScanInitializationStatusText,
+  shouldSkipAutoAgentForScan
+} from './post-cleanup-rescan-controller'
+import { buildAgentInvestigationCandidates } from '../shared/agent-candidate-prep'
+import { buildCandidateRefIndex } from '../shared/candidate-ref-index'
+import {
+  getCurrentAgentAnalysis,
   onScanCancelledNoAnalysis,
   resetAgentAnalysisUi,
   runAgentAnalysisForSession,
   shouldAutoAnalyzeAfterScan,
   wireAgentAnalysisUi
 } from './agent-analysis'
+import { createAgentAnalysisSessionCallbacks } from './agent-session-lifecycle'
 import {
   resetRuleDraftActionUi,
   updateRuleDraftActionState,
@@ -51,10 +82,11 @@ import {
 } from './rule-extension-mode'
 import {
   mapScanProgressPhaseToTaskPhase,
-  resolveScanTaskHeadline,
-  resolveScanTaskSubline,
   type ScanTaskPhase
 } from './scan-task-state'
+import { resolveTaskHeadline, resolveTaskSubline, runPlanningPhase } from './cleanup-task-ui'
+import { appendDomInBatches } from './batch-dom'
+import { buildResultStructureKey, patchResultCategoriesDom } from './result-category-patch'
 import { wireRuleKnowledgeSettings } from './rule-knowledge-settings'
 
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab')
@@ -72,30 +104,19 @@ tabs.forEach((tab) => {
   })
 })
 
-wireRuleDraftActions(panelClean, () => ({
-  scanResult,
-  scanning,
-  ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
-  extensionStep: getRuleExtensionStep()
-}))
-wireRuleKnowledgeSettings()
-
-wireAgentAnalysisUi({
-  onItemsUpdated: (items) => {
-    if (!scanResult) return
-    scanResult = { ...scanResult, items }
-    preservePanelScrollTop(panelClean, () => renderCategories(items))
-    updateSelectedSummary()
-  },
-  onFailed: () => {
-    scanTaskPhase = 'agent-failed'
-    updateScanTaskStatus(scanResult?.items.length ?? 0)
-  },
-  openSettings: () => {
-    const settingsTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')
-    settingsTab?.click()
+wireRuleDraftActions(
+  panelClean,
+  () => ({
+    scanResult,
+    scanning,
+    ruleDraftSelectedIds: ruleDraftSelection.getSelectedIds(),
+    extensionStep: getRuleExtensionStep()
+  }),
+  () => {
+    scanBtn.click()
   }
-})
+)
+wireRuleKnowledgeSettings()
 
 // ── Theme ──
 const themeControl = document.getElementById('theme-control')!
@@ -135,6 +156,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 // ── Scan / Clean ──
 const driveSelect = document.getElementById('drive-select') as HTMLSelectElement
 const scanBtn = document.getElementById('scan-btn') as HTMLButtonElement
+const retryRescanBtn = document.getElementById('retry-rescan-btn') as HTMLButtonElement
 const cleanBtn = document.getElementById('clean-btn') as HTMLButtonElement
 const summary = document.getElementById('summary') as HTMLElement
 const progress = document.getElementById('progress') as HTMLElement
@@ -153,7 +175,40 @@ const statusText = document.getElementById('status-text') as HTMLElement
 let scanResult: ScanResult | null = null
 let scanning = false
 let scanTaskPhase: ScanTaskPhase = 'idle'
+let agentCandidateCount = 0
 let renderTimer: number | null = null
+let lastResultStructureKey: string | null = null
+let lastDiscoveryRenderCount = 0
+let activeBatchCancels = new Set<() => void>()
+let postCleanupRescanSession = createPostCleanupRescanSession()
+let skipAutoAgentForCurrentScan = false
+let cachedPathAccessPolicy: import('../shared/path-access-policy').PathAccessPolicy | null = null
+
+function syncPersistentCleanupStatus(): void {
+  const text = resolvePersistentCleanupStatusText(postCleanupRescanSession)
+  if (text) statusText.textContent = text
+}
+
+function refreshRescanRetryButton(): void {
+  retryRescanBtn.hidden = !canRetryPostCleanupRescan(postCleanupRescanSession)
+}
+
+function cancelActiveBatchRender(): void {
+  for (const cancel of activeBatchCancels) cancel()
+  activeBatchCancels.clear()
+}
+
+function registerBatchRender(cancel: () => void): void {
+  activeBatchCancels.add(cancel)
+}
+
+async function getRendererPathAccessPolicy(): Promise<import('../shared/path-access-policy').PathAccessPolicy> {
+  if (!cachedPathAccessPolicy) {
+    const safety = await window.diskClean.getSafetyPolicy()
+    cachedPathAccessPolicy = safety.pathAccessPolicy
+  }
+  return cachedPathAccessPolicy
+}
 const ruleGroupExpansion = new RuleGroupExpansionState()
 const resultCategoryView = new ResultCategoryViewState()
 const candidateSelection = new CandidateSelectionViewState()
@@ -163,19 +218,40 @@ function formatSize(bytes: number): string {
   return formatBytes(bytes)
 }
 
-function categoryBadgeClass(category: Category): string {
-  if (category === 'safe') return 'badge-safe'
-  if (category === 'recommended') return 'badge-recommended'
+function getDriveLabel(): string {
+  const drive = driveSelect.value
+  return drive === 'all' ? '全部磁盘' : `${drive} 盘`
+}
+
+function displayCategoryBadgeClass(category: CleanupDisplayCategory): string {
+  if (category === 'recommended-clean') return 'badge-safe'
+  if (category === 'caution-clean' || category === 'space-occupancy') return 'badge-recommended'
   return 'badge-dangerous'
 }
 
-function updateScanTaskStatus(discoveredCount = 0): void {
-  if (!scanTaskStatusEl) return
-  scanTaskStatusEl.textContent = resolveScanTaskSubline({
+function isAgentReviewing(): boolean {
+  return scanTaskPhase === 'analyzing'
+}
+
+function getTaskProgressContext(discoveredCount: number) {
+  return {
     phase: scanTaskPhase,
+    driveLabel: getDriveLabel(),
     discoveredCount,
-    agentStatus: undefined
-  })
+    agentStatus: getCurrentAgentAnalysis()?.status,
+    agentCandidateCount,
+    resultsUpdating: scanning || scanTaskPhase === 'analyzing' || scanTaskPhase === 'planning'
+  }
+}
+
+function refreshTaskProgressUi(discoveredCount = scanResult?.items.length ?? 0): void {
+  const ctx = getTaskProgressContext(discoveredCount)
+  if (progressLabel) progressLabel.textContent = resolveTaskHeadline(ctx)
+  if (scanTaskStatusEl) scanTaskStatusEl.textContent = resolveTaskSubline(ctx)
+}
+
+function updateScanTaskStatus(discoveredCount = 0): void {
+  refreshTaskProgressUi(discoveredCount)
 }
 
 function syncRuleExtensionUi(): void {
@@ -227,13 +303,8 @@ function updateProgressUI(p: {
   categoryCurrent: number
   categoryTotal: number
 }): void {
-  scanTaskPhase = mapScanProgressPhaseToTaskPhase(true, p.phase)
-  progressLabel.textContent = resolveScanTaskHeadline({
-    phase: scanTaskPhase,
-    discoveredCount: p.current,
-    agentStatus: undefined
-  })
-  updateScanTaskStatus(p.current)
+  scanTaskPhase = mapScanProgressPhaseToTaskPhase(true, p.phase, isAgentReviewing())
+  refreshTaskProgressUi(p.current)
 
   if (p.phase === 'space-discovery') {
     progressRule.textContent = p.label || '…'
@@ -270,6 +341,26 @@ function scheduleRender(items: ScanItem[]): void {
 }
 
 function renderScanningDiscoveries(items: ScanItem[]): void {
+  const existing = categoriesEl.querySelector('.scanning-discoveries')
+  if (existing && items.length >= lastDiscoveryRenderCount) {
+    const title = existing.querySelector('.scanning-discoveries-title')
+    if (title) title.textContent = `正在识别（${items.length}）`
+    const list = existing.querySelector('ul.item-list')
+    if (list) {
+      const slice = items.slice(lastDiscoveryRenderCount, items.length)
+      for (const item of slice.slice(-50)) {
+        list.appendChild(renderScanItemElement(item))
+      }
+      while (list.childElementCount > 50) {
+        list.firstElementChild?.remove()
+      }
+    }
+    lastDiscoveryRenderCount = items.length
+    updateScanTaskStatus(items.length)
+    return
+  }
+
+  lastDiscoveryRenderCount = items.length
   categoriesEl.innerHTML = ''
   const wrapper = document.createElement('section')
   wrapper.className = 'scanning-discoveries'
@@ -310,7 +401,7 @@ function setScanning(active: boolean): void {
 function finishScan(result: ScanResult): void {
   scanResult = result
   const { items, errors, cancelled, drive } = result
-  scanTaskPhase = cancelled ? 'cancelled' : 'organizing-local'
+  scanTaskPhase = cancelled ? 'cancelled' : 'organizing'
   updateScanTaskStatus(items.length)
 
   exitRuleExtensionMode()
@@ -327,43 +418,77 @@ function finishScan(result: ScanResult): void {
   updateSelectedSummary()
 
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
+  if (isPostCleanupRescanActive(postCleanupRescanSession)) {
+    if (cancelled) {
+      postCleanupRescanSession = applyPostCleanupRescanFinish(postCleanupRescanSession, { cancelled: true })
+      skipAutoAgentForCurrentScan = false
+      syncPersistentCleanupStatus()
+      refreshRescanRetryButton()
+      scanTaskPhase = 'completed'
+      refreshTaskProgressUi(items.length)
+      return
+    }
+    if (postCleanupRescanSession.pendingCleanupOutcome && postCleanupRescanSession.cleanupOutcomeSummary) {
+      const comparison = buildCleanupRescanComparison(postCleanupRescanSession.pendingCleanupOutcome, items)
+      postCleanupRescanSession = applyPostCleanupRescanFinish(postCleanupRescanSession, {
+        cancelled: false,
+        comparisonDetail: formatCleanupRescanComparison(comparison)
+      })
+    } else {
+      postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
+    }
+    skipAutoAgentForCurrentScan = false
+    syncPersistentCleanupStatus()
+    refreshRescanRetryButton()
+    scanTaskPhase = 'completed'
+    refreshTaskProgressUi(items.length)
+    return
+  }
+
   if (cancelled) {
     statusText.textContent = `${driveLabel} · 扫描已停止 · 保留 ${items.length} 项结果`
     scanTaskPhase = 'cancelled'
-  } else if (errors.length > 0) {
+    refreshTaskProgressUi(items.length)
+    return
+  }
+
+  if (errors.length > 0) {
     statusText.textContent = `${driveLabel} · 扫描完成，${errors.length} 个路径因权限等原因跳过`
-    scanTaskPhase = 'completed'
   } else {
     statusText.textContent = `${driveLabel} · 扫描完成 · ${new Date(result.scannedAt).toLocaleString('zh-CN')}`
-    scanTaskPhase = 'completed'
   }
-  updateScanTaskStatus(items.length)
 
-  if (shouldAutoAnalyzeAfterScan(cancelled === true)) {
-    scanTaskPhase = 'agent-reviewing'
-    updateScanTaskStatus(items.length)
-    void runAgentAnalysisForSession(result.sessionId, {
-      onItemsUpdated: (items) => {
-        if (!scanResult || scanResult.sessionId !== result.sessionId) return
-        scanResult = { ...scanResult, items }
-        candidateSelection.reconcileAfterAgentUpdate(items, isSelectable, getDefaultChecked)
-        preservePanelScrollTop(panelClean, () => renderCategories(items))
-        updateSelectedSummary()
-        scanTaskPhase = 'completed'
-        updateScanTaskStatus(items.length)
-      },
-      onFailed: () => {
-        scanTaskPhase = 'agent-failed'
-        updateScanTaskStatus(items.length)
-      },
-      openSettings: () => {
-        document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')?.click()
-      }
-    })
+  if (shouldAutoAnalyzeAfterScan(false) && !skipAutoAgentForCurrentScan) {
+    void (async () => {
+      const pathPolicy = await getRendererPathAccessPolicy()
+      const refIndex = buildCandidateRefIndex(items, 'ui-preview', 0)
+      agentCandidateCount = buildAgentInvestigationCandidates(items, {
+        pathAccessPolicy: pathPolicy,
+        refIndex
+      }).length
+      scanTaskPhase = 'analyzing'
+      refreshTaskProgressUi(items.length)
+      await runAgentAnalysisForSession(
+        result.sessionId,
+        createAppAgentAnalysisCallbacks(result.sessionId)
+      )
+    })()
   } else {
     onScanCancelledNoAnalysis(result.sessionId)
-    scanTaskPhase = cancelled ? 'cancelled' : 'completed'
-    updateScanTaskStatus(items.length)
+    void (async () => {
+      if (!cancelled) {
+        await runPlanningPhase(
+          (phase) => {
+            scanTaskPhase = phase
+          },
+          () => refreshTaskProgressUi(items.length)
+        )
+        scanTaskPhase = 'completed'
+      } else {
+        scanTaskPhase = 'cancelled'
+      }
+      refreshTaskProgressUi(items.length)
+    })()
   }
 }
 
@@ -372,12 +497,89 @@ function getDefaultChecked(item: ScanItem): boolean {
   return normalized.selection.selectable && normalized.autoSelect
 }
 
+function openAgentSettingsTab(): void {
+  document.querySelector<HTMLButtonElement>('.tab[data-tab="settings"]')?.click()
+}
+
+function createAppAgentAnalysisCallbacks(sessionId?: string) {
+  return createAgentAnalysisSessionCallbacks({
+    sessionId,
+    getScanResult: () => scanResult,
+    setScanResult: (result) => {
+      scanResult = result
+    },
+    setTaskPhase: (phase) => {
+      scanTaskPhase = phase
+    },
+    refreshTaskProgress: refreshTaskProgressUi,
+    reconcileSelection: async (items) => {
+      candidateSelection.reconcileAfterAgentUpdate(items, isSelectable, getDefaultChecked)
+    },
+    renderCategories: (items) => renderCategories(items),
+    updateSelectedSummary,
+    preservePanelScroll: (fn) => preservePanelScrollTop(panelClean, fn),
+    openSettings: openAgentSettingsTab
+  })
+}
+
+wireAgentAnalysisUi(createAppAgentAnalysisCallbacks())
+
 function renderScanItemElement(item: ScanItem): HTMLLIElement {
-  return createScanItemElement(
+  const li = createScanItemElement(
     buildScanItemRenderInput(item, {
       contentTypeLabel: CONTENT_TYPE_LABELS[item.contentType]
     })
   )
+  li.dataset.itemId = item.id
+  return li
+}
+
+function wireScanItemListElement(
+  li: HTMLLIElement,
+  item: ScanItem,
+  catItems: ScanItem[],
+  selectAllCb: HTMLInputElement
+): void {
+  const normalized = normalizeCandidate(item)
+  const checkbox = li.querySelector('input[data-role="cleanup"]') as HTMLInputElement
+  checkbox.dataset.id = item.id
+  checkbox.checked = normalized.selection.selectable && candidateSelection.isSelected(item.id)
+  checkbox.disabled = !normalized.selection.selectable
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) candidateSelection.select(item.id)
+    else candidateSelection.deselect(item.id)
+    const deletable = catItems.filter((entry) => isSelectable(entry))
+    const selectedCount = deletable.filter((entry) => candidateSelection.isSelected(entry.id)).length
+    selectAllCb.checked = selectedCount > 0 && selectedCount === deletable.length
+    selectAllCb.indeterminate = selectedCount > 0 && selectedCount < deletable.length
+    updateSelectedSummary()
+  })
+
+  const draftPickLabel = document.createElement('label')
+  draftPickLabel.className = 'rule-draft-pick'
+  draftPickLabel.hidden = !isRuleExtensionModeActive()
+  draftPickLabel.title = '选作规则样本（与清理勾选独立）'
+  const draftPick = document.createElement('input')
+  draftPick.type = 'checkbox'
+  draftPick.dataset.role = 'rule-draft'
+  draftPick.dataset.id = item.id
+  draftPick.checked = ruleDraftSelection.isSelected(item.id)
+  draftPick.disabled = scanning || !scanResult?.sessionId
+  draftPick.addEventListener('change', () => {
+    ruleDraftSelection.toggle(item.id, draftPick.checked)
+    syncRuleExtensionUi()
+  })
+  draftPickLabel.append(draftPick, document.createTextNode('规则样本'))
+  li.appendChild(draftPickLabel)
+
+  const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
+  pathBtnEl.addEventListener('click', async () => {
+    try {
+      await window.diskClean.openInExplorer(item.path)
+    } catch (err) {
+      statusText.textContent = `无法打开：${err instanceof Error ? err.message : String(err)}`
+    }
+  })
 }
 
 function updateSelectedSummary(): void {
@@ -404,6 +606,36 @@ function updateSelectedSummary(): void {
 }
 
 function renderCategories(items: ScanItem[]): void {
+  const structureKey = buildResultStructureKey(items, { agentReviewing: isAgentReviewing() })
+  const existingPanel = categoriesEl.querySelector('.result-panel') as HTMLElement | null
+  if (existingPanel && lastResultStructureKey === structureKey) {
+    const grouped = groupItemsByDisplayCategory(items, { agentReviewing: isAgentReviewing() })
+    const patched = patchResultCategoriesDom(existingPanel, items, {
+      agentReviewing: isAgentReviewing(),
+      formatSize,
+      createListItem: (item) => {
+        const category = CLEANUP_DISPLAY_CATEGORY_ORDER.find((cat) =>
+          (grouped[cat] ?? []).some((entry) => entry.id === item.id)
+        )
+        const catItems = category ? (grouped[category] ?? []) : []
+        const panel = category
+          ? existingPanel.querySelector<HTMLElement>(`#cat-panel-${category}`)
+          : null
+        const selectAllCb = panel?.querySelector<HTMLInputElement>('.select-all-checkbox')
+        const li = renderScanItemElement(item)
+        if (selectAllCb) wireScanItemListElement(li, item, catItems, selectAllCb)
+        return li
+      }
+    })
+    if (patched) {
+      cancelActiveBatchRender()
+      lastResultStructureKey = structureKey
+      return
+    }
+  }
+
+  lastResultStructureKey = structureKey
+  cancelActiveBatchRender()
   categoriesEl.innerHTML = ''
   if (items.length === 0) {
     categoriesEl.innerHTML = `
@@ -416,15 +648,21 @@ function renderCategories(items: ScanItem[]): void {
     return
   }
 
-  const order = CATEGORY_ORDER
-  const grouped = Object.fromEntries(
-    order.map((cat) => [cat, items.filter((i) => i.category === cat)])
-  ) as Record<Category, ScanItem[]>
+  const order = CLEANUP_DISPLAY_CATEGORY_ORDER.filter((cat) => {
+    if (cat === 'identifying' || cat === 'analyzing') {
+      return scanning || isAgentReviewing()
+    }
+    return true
+  })
+  const grouped = groupItemsByDisplayCategory(items, { agentReviewing: isAgentReviewing() })
 
-  const activeCategory = resultCategoryView.resolveActiveCategory(items)
+  const activeCategory = resultCategoryView.resolveActiveCategory(items, {
+    agentReviewing: isAgentReviewing()
+  })
 
   const wrapper = document.createElement('div')
   wrapper.className = 'result-panel'
+  wrapper.dataset.structureKey = structureKey
 
   const tabBar = document.createElement('nav')
   tabBar.className = 'category-tabs'
@@ -460,7 +698,7 @@ function renderCategories(items: ScanItem[]): void {
   }
 
   function renderItemList(
-    category: Category,
+    category: CleanupDisplayCategory,
     catItems: ScanItem[],
     selectAllCb: HTMLInputElement
   ): HTMLElement {
@@ -482,6 +720,7 @@ function renderCategories(items: ScanItem[]): void {
 
       const group = document.createElement('section')
       group.className = `rule-group${isExpanded ? ' is-expanded' : ' is-collapsed'}`
+      group.dataset.ruleName = ruleName
 
       const ruleSize = ruleItems.reduce((s, i) => s + i.size, 0)
       const drives = [...new Set(ruleItems.map((i) => i.drive))].join('、')
@@ -518,50 +757,13 @@ function renderCategories(items: ScanItem[]): void {
       const list = document.createElement('ul')
       list.className = 'item-list'
 
-      for (const item of ruleItems) {
-        const normalized = normalizeCandidate(item)
+      const renderListItem = (item: ScanItem): HTMLLIElement => {
         const li = renderScanItemElement(item)
-
-        const checkbox = li.querySelector('input[data-role="cleanup"]') as HTMLInputElement
-        checkbox.dataset.id = item.id
-        checkbox.checked =
-          normalized.selection.selectable && candidateSelection.isSelected(item.id)
-        checkbox.disabled = !normalized.selection.selectable
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) candidateSelection.select(item.id)
-          else candidateSelection.deselect(item.id)
-          updateSelectAllState(selectAllCb, catItems)
-          updateSelectedSummary()
-        })
-
-        const draftPickLabel = document.createElement('label')
-        draftPickLabel.className = 'rule-draft-pick'
-        draftPickLabel.hidden = !isRuleExtensionModeActive()
-        draftPickLabel.title = '选作规则样本（与清理勾选独立）'
-        const draftPick = document.createElement('input')
-        draftPick.type = 'checkbox'
-        draftPick.dataset.role = 'rule-draft'
-        draftPick.dataset.id = item.id
-        draftPick.checked = ruleDraftSelection.isSelected(item.id)
-        draftPick.disabled = scanning || !scanResult?.sessionId
-        draftPick.addEventListener('change', () => {
-          ruleDraftSelection.toggle(item.id, draftPick.checked)
-          syncRuleExtensionUi()
-        })
-        draftPickLabel.append(draftPick, document.createTextNode('规则样本'))
-        li.appendChild(draftPickLabel)
-
-        const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
-        pathBtnEl.addEventListener('click', async () => {
-          try {
-            await window.diskClean.openInExplorer(item.path)
-          } catch (err) {
-            statusText.textContent = `无法打开：${err instanceof Error ? err.message : String(err)}`
-          }
-        })
-
-        list.appendChild(li)
+        wireScanItemListElement(li, item, catItems, selectAllCb)
+        return li
       }
+
+      registerBatchRender(appendDomInBatches(list, ruleItems, renderListItem))
 
       body.appendChild(list)
       group.appendChild(body)
@@ -571,7 +773,7 @@ function renderCategories(items: ScanItem[]): void {
     return container
   }
 
-  function switchCategory(category: Category): void {
+  function switchCategory(category: CleanupDisplayCategory): void {
     tabBar.querySelectorAll('.category-tab').forEach((btn) => {
       const el = btn as HTMLButtonElement
       const active = el.dataset.category === category
@@ -584,10 +786,12 @@ function renderCategories(items: ScanItem[]): void {
   }
 
   for (const category of order) {
-    const catItems = grouped[category]
+    const catItems = grouped[category] ?? []
     const catSize = catItems.reduce((s, i) => s + i.size, 0)
-    const badgeClass =
-      category === 'safe' ? 'badge-safe' : category === 'recommended' ? 'badge-recommended' : 'badge-dangerous'
+    if (catItems.length === 0 && category !== 'identifying' && category !== 'analyzing') {
+      continue
+    }
+    const badgeClass = displayCategoryBadgeClass(category)
 
     const tab = document.createElement('button')
     tab.className = `category-tab${category === activeCategory ? ' active' : ''}`
@@ -595,7 +799,7 @@ function renderCategories(items: ScanItem[]): void {
     tab.setAttribute('role', 'tab')
     tab.setAttribute('aria-selected', String(category === activeCategory))
     tab.innerHTML = `
-      <span class="category-tab-label">${CANDIDATE_TAB_LABELS[category]}</span>
+      <span class="category-tab-label">${CLEANUP_DISPLAY_CATEGORY_LABELS[category]}</span>
       <span class="category-tab-meta">${catItems.length} 项 · ${formatSize(catSize)}</span>
     `
     tab.addEventListener('click', () => {
@@ -612,19 +816,19 @@ function renderCategories(items: ScanItem[]): void {
     panel.innerHTML = `
       <div class="category-panel-header">
         <div class="category-panel-title">
-          <span class="category-badge ${badgeClass}">${CANDIDATE_TAB_LABELS[category]}</span>
-          <p class="category-desc">${CATEGORY_DESCRIPTIONS[category]}</p>
+          <span class="category-badge ${badgeClass}">${CLEANUP_DISPLAY_CATEGORY_LABELS[category]}</span>
+          <p class="category-desc">${CLEANUP_DISPLAY_CATEGORY_DESCRIPTIONS[category]}</p>
         </div>
       </div>
     `
 
     if (
-      category === 'dangerous' &&
+      (category === 'space-occupancy' || category === 'caution-clean') &&
       shouldShowExtensionEntry({
         scanning,
         hasSession: Boolean(scanResult?.sessionId),
         cancelled: scanResult?.cancelled,
-        dangerousCandidateCount: catItems.length
+        extensionCandidateCount: catItems.length
       })
     ) {
       panel.querySelector('.category-panel-header')?.appendChild(createExtensionEntryHost())
@@ -669,23 +873,69 @@ function renderCategories(items: ScanItem[]): void {
   categoriesEl.appendChild(wrapper)
 }
 
-async function startScan(options: { drive?: string; confirmRescan?: boolean } = {}): Promise<void> {
+async function startPostCleanupRescan(): Promise<void> {
+  if (!canRetryPostCleanupRescan(postCleanupRescanSession)) return
+  if (postCleanupRescanSession.inFlight) return
+  const options = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
+  if (!options) return
+  postCleanupRescanSession = reducePostCleanupRescanSession(postCleanupRescanSession, { type: 'retry-rescan' })
+  syncPersistentCleanupStatus()
+  refreshRescanRetryButton()
+  await startScan(options)
+}
+
+async function startScan(
+  options: { drive?: string; confirmRescan?: boolean; skipAutoAgent?: boolean; ordinaryScan?: boolean } = {}
+): Promise<void> {
   const drive = options.drive ?? (driveSelect.value || 'all')
-  if (
-    options.confirmRescan !== false &&
-    scanResult &&
-    scanResult.items.some((item) => candidateSelection.isSelected(item.id) && isSelectable(item))
-  ) {
+  const isOrdinaryScan = options.ordinaryScan === true
+  const hasSelectedItems = Boolean(
+    scanResult?.items.some((item) => candidateSelection.isSelected(item.id) && isSelectable(item))
+  )
+  const preflight = planScanPreflight(postCleanupRescanSession, {
+    isOrdinaryScan,
+    hasSelectedItems,
+    confirmRescan: options.confirmRescan
+  })
+
+  if (preflight.combinedConfirm) {
     const confirmed = await showConfirmDialog({
-      title: '重新扫描',
-      message: '重新扫描会替换当前结果并清除已勾选项目。',
-      details: ['当前清理勾选将丢失', '规则样本选择模式将退出']
+      title: '开始新扫描',
+      message: '开始新的普通扫描将放弃当前清理复核上下文，并清除已勾选项目。',
+      details: ['未完成的复核结果将不再保留', '如需复核请使用「重新复核」', '规则样本选择模式将退出']
     })
     if (!confirmed) return
+  } else {
+    if (preflight.needsAbandonRescanConfirm) {
+      const confirmed = await showConfirmDialog({
+        title: '开始新扫描',
+        message: '开始新的普通扫描将放弃当前清理复核上下文。',
+        details: ['未完成的复核结果将不再保留', '如需复核请使用「重新复核」']
+      })
+      if (!confirmed) return
+    }
+    if (preflight.needsClearSelectionConfirm) {
+      const confirmed = await showConfirmDialog({
+        title: '重新扫描',
+        message: '重新扫描会替换当前结果并清除已勾选项目。',
+        details: ['当前清理勾选将丢失', '规则样本选择模式将退出']
+      })
+      if (!confirmed) return
+    }
+  }
+
+  const committed = commitScanPreflight(postCleanupRescanSession, {
+    isOrdinaryScan,
+    skipAutoAgentOption: options.skipAutoAgent
+  })
+  postCleanupRescanSession = committed.session
+  skipAutoAgentForCurrentScan = committed.skipAutoAgent
+  if (isOrdinaryScan) {
+    refreshRescanRetryButton()
   }
 
   setScanning(true)
-  scanTaskPhase = 'scanning-disk'
+  scanTaskPhase = 'scanning'
   updateScanTaskStatus(0)
   candidateSelection.clear()
   ruleDraftSelection.clear()
@@ -694,18 +944,27 @@ async function startScan(options: { drive?: string; confirmRescan?: boolean } = 
   exitRuleExtensionMode()
   ruleGroupExpansion.clear()
   resultCategoryView.clear()
+  lastResultStructureKey = null
+  lastDiscoveryRenderCount = 0
+  cachedPathAccessPolicy = null
+  cancelActiveBatchRender()
   scanResult = null
   progress.hidden = false
   summary.hidden = false
   categoriesEl.innerHTML = ''
   progressFill.style.width = '0%'
   progressRule.textContent = '准备开始…'
-  progressLabel.textContent = resolveScanTaskHeadline({
-    phase: 'scanning-disk',
-    discoveredCount: 0
+  progressLabel.textContent = resolveTaskHeadline({
+    phase: 'scanning',
+    driveLabel: getDriveLabel(),
+    discoveredCount: 0,
+    agentStatus: undefined
   })
   progressHint.textContent = `${drive === 'all' ? '全部磁盘' : `${drive} 盘`} · 统一扫描`
-  statusText.textContent = '扫描中，发现的项目将实时列出…'
+  statusText.textContent = resolveScanInitializationStatusText(
+    postCleanupRescanSession,
+    '扫描中，发现的项目将实时列出…'
+  )
 
   let accumulatedItems: ScanItem[] = []
   let accumulatedErrors: ScanError[] = []
@@ -725,9 +984,20 @@ async function startScan(options: { drive?: string; confirmRescan?: boolean } = 
     const result = await window.diskClean.startScan({ drive })
     finishScan(result)
   } catch (err) {
-    statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
+    if (isPostCleanupRescanActive(postCleanupRescanSession) && postCleanupRescanSession.cleanupOutcomeSummary) {
+      postCleanupRescanSession = applyPostCleanupRescanFailure(
+        postCleanupRescanSession,
+        err instanceof Error ? err.message : String(err)
+      )
+      syncPersistentCleanupStatus()
+      refreshRescanRetryButton()
+    } else {
+      statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
+    }
     progress.hidden = true
   } finally {
+    postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
+    refreshRescanRetryButton()
     unsubscribeProgress()
     unsubscribeItems()
     setScanning(false)
@@ -740,7 +1010,7 @@ async function handleScanButtonClick(): Promise<void> {
     await window.diskClean.cancelScan()
     return
   }
-  await startScan()
+  await startScan({ ordinaryScan: true, confirmRescan: true })
 }
 
 async function cleanSelected(): Promise<void> {
@@ -749,53 +1019,92 @@ async function cleanSelected(): Promise<void> {
   const selected = scanResult.items.filter((i) => candidateSelection.isSelected(i.id) && isSelectable(i))
   if (selected.length === 0) return
 
-  const totalSize = selected.reduce((s, i) => s + i.size, 0)
-  const riskLines = CATEGORY_ORDER.map((cat) => {
-    const count = selected.filter((i) => i.category === cat).length
-    return count > 0 ? `${CANDIDATE_TAB_LABELS[cat]} ${count} 项` : null
-  })
-    .filter(Boolean)
-    .join(' · ')
-
-  const confirmed = await showConfirmDialog({
-    title: '确认清理',
-    message: `将 ${selected.length} 项移入回收站（逻辑大小估算 ${formatSize(totalSize)}）`,
-    details: [
-      riskLines,
-      '执行方式：移入 Windows 回收站',
-      '这些文件仍可能占用磁盘空间，清空回收站后才会真正释放',
-      '若路径自扫描后发生显著变化，将自动跳过而不强制执行'
-    ]
-  })
-  if (!confirmed) return
+  const sessionInfo = await window.diskClean.getScanSessionInfo()
+  if (!sessionInfo || sessionInfo.sessionId !== scanResult.sessionId) {
+    statusText.textContent = '扫描会话已过期，请重新扫描后再清理'
+    return
+  }
 
   cleanBtn.disabled = true
   statusText.textContent = '正在生成清理计划并校验…'
 
+  let preview
   try {
-    const result = await window.diskClean.executeCleanup({
+    preview = await window.diskClean.prepareCleanup({
       sessionId: scanResult.sessionId,
+      fingerprint: sessionInfo.fingerprint,
       candidateIds: selected.map((item) => item.id)
     })
+  } catch (err) {
+    statusText.textContent = `无法生成清理计划：${err instanceof Error ? err.message : String(err)}`
+    updateSelectedSummary()
+    return
+  }
 
-    const parts = [
-      `已移入回收站 ${formatSize(result.movedToTrashBytes)}（逻辑大小估算）`,
-      `成功 ${result.moved}`,
-      '清空回收站后才会真正释放磁盘空间'
-    ]
-    if (result.skipped > 0) parts.push(`校验跳过 ${result.skipped}`)
-    if (result.failed > 0) parts.push(`失败 ${result.failed}`)
-    statusText.textContent = `清理完成：${parts.join('；')}`
+  const appClosedItems = selected.filter((item) => item.requiresAppClosed)
+  const confirmed = await showConfirmDialog({
+    title: '确认清理',
+    message: `将 ${preview.itemCount} 项移入回收站（逻辑大小估算 ${formatSize(preview.estimatedLogicalBytes)}）`,
+    details: [
+      `建议清理 ${preview.recommendedCleanCount} 项 · 谨慎清理 ${preview.cautionCleanCount} 项`,
+      ...preview.basisSummaries,
+      appClosedItems.length > 0
+        ? `${appClosedItems.length} 项需先关闭相关软件：${appClosedItems.map((item) => item.ruleName).join('、')}`
+        : null,
+      appClosedItems.length > 0 ? '请确认相关软件已关闭后再继续' : null,
+      '执行方式：移入 Windows 回收站',
+      '这些文件仍可能占用磁盘空间，清空回收站后才会真正释放',
+      preview.rejectedCount > 0 ? `${preview.rejectedCount} 项未通过授权校验，不会执行` : null,
+      '若路径自扫描后发生显著变化，将自动跳过而不强制执行'
+    ].filter((line): line is string => Boolean(line))
+  })
+  if (!confirmed) {
+    updateSelectedSummary()
+    return
+  }
 
-    await startScan()
+  statusText.textContent = '正在移入回收站…'
+
+  let cleanupResult
+  try {
+    cleanupResult = await window.diskClean.executeConfirmedCleanup({
+      confirmationId: preview.confirmationId
+    })
   } catch (err) {
     statusText.textContent = `清理失败：${err instanceof Error ? err.message : String(err)}`
     updateSelectedSummary()
+    return
   }
+
+  const manifest = buildCleanupOutcomeManifest({
+    sessionId: scanResult.sessionId,
+    selectedItems: selected.map((item) => ({ id: item.id, path: item.path })),
+    preview: {
+      approvedCandidateIds: preview.approvedCandidateIds,
+      rejectedAtPrepare: preview.rejectedAtPrepare
+    },
+    result: cleanupResult
+  })
+  const summary = formatCleanupOutcomeSummary(manifest)
+  postCleanupRescanSession = beginPostCleanupRescanSession(postCleanupRescanSession, {
+    cleanupOutcomeSummary: summary,
+    pendingCleanupOutcome: manifest,
+    drive: scanResult.drive
+  })
+  syncPersistentCleanupStatus()
+  refreshRescanRetryButton()
+  const rescanOptions = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
+  if (rescanOptions) {
+    await startScan(rescanOptions)
+  }
+  updateSelectedSummary()
 }
 
 scanBtn.addEventListener('click', () => {
   void handleScanButtonClick()
+})
+retryRescanBtn.addEventListener('click', () => {
+  void startPostCleanupRescan()
 })
 cleanBtn.addEventListener('click', cleanSelected)
 
@@ -831,8 +1140,8 @@ wireRuleExtensionMode({
   },
   onNext: async () => {
     if (!scanResult || ruleDraftSelection.getSelectedIds().size === 0) return
-    const hasProvider = await window.diskClean.getProviderConfig()
-    advanceToActionStep(Boolean(hasProvider?.hasKey))
+    const profiles = await window.diskClean.listProviderProfiles()
+    advanceToActionStep(activeProfileHasKey(profiles))
     syncRuleExtensionUi()
   },
   onBackToSelect: () => {
@@ -860,5 +1169,5 @@ window.addEventListener('diskclean:trigger-rescan', () => {
 async function triggerRescanFromSettings(drive?: string): Promise<void> {
   document.querySelector<HTMLButtonElement>('.tab[data-tab="clean"]')?.click()
   if (drive) driveSelect.value = drive
-  await startScan({ drive: drive ?? driveSelect.value, confirmRescan: true })
+  await startScan({ drive: drive ?? driveSelect.value, confirmRescan: true, ordinaryScan: true })
 }

@@ -1,4 +1,5 @@
 import type { Category, ContentType, RuleConfig } from './types'
+import type { PathAccessPolicy } from './path-access-policy'
 
 export const RULE_PACK_SCHEMA_VERSION = '1' as const
 export const RULE_DRAFT_SCHEMA_VERSION = '1' as const
@@ -49,6 +50,7 @@ export interface CoreSafetyPolicy {
   protectedPaths: string[]
   protectedLabels: Record<string, string>
   constraints: string[]
+  pathAccessPolicy: PathAccessPolicy
 }
 
 export interface RuleDraftV1 {
@@ -64,6 +66,7 @@ export interface RuleDraftV1 {
   reason: string
   impact?: string
   rebuildable?: boolean
+  requiresAppClosed?: boolean
   suggestedRisk: SuggestedRisk
   source: RuleDraftOrigin
   generatedFromSessionId?: string

@@ -1,3 +1,5 @@
+import type { CandidateRefIndex } from '../../shared/candidate-ref-index'
+import type { AgentInvestigationCandidate } from '../../shared/agent-candidate-prep'
 import { AGENT_LIMITS } from '../../shared/agent-limits'
 import type { ScanItem } from '../../shared/types'
 import { sanitizeFileName, sanitizeFreeText, sanitizeHierarchyPath, type SanitizePathOptions } from './path-sanitize'
@@ -23,11 +25,14 @@ export interface AgentPromptPayload {
   schemaVersion: '1'
   candidateCount: number
   omittedCount: number
+  /** 本轮重点调查候选（按优先级排序）。 */
+  investigationPriorityRefs: string[]
   candidates: AgentPromptCandidate[]
 }
 
 export interface BuildAgentPromptResult {
   payload: AgentPromptPayload
+  /** 实际送入模型的 ref → id（Prompt 缩减后的子集，不修改 canonical 索引）。 */
   refToId: Map<string, string>
   analyzedCount: number
   omittedCount: number
@@ -97,16 +102,30 @@ function buildEvidenceLines(item: ScanItem, options: SanitizePathOptions): strin
   return [...new Set(lines)].slice(0, AGENT_LIMITS.MAX_EVIDENCE_PER_CANDIDATE)
 }
 
+export interface BuildAgentPromptOptions extends SanitizePathOptions {
+  refIndex?: Pick<CandidateRefIndex, 'refToId' | 'idToRef'>
+  investigationCandidates?: AgentInvestigationCandidate[]
+}
+
 export function buildAgentPromptPayload(
   items: ScanItem[],
-  options: SanitizePathOptions = {}
+  options: BuildAgentPromptOptions = {}
 ): BuildAgentPromptResult {
+  const idToRef = options.refIndex?.idToRef
   const refToId = new Map<string, string>()
-  const limited = items.slice(0, AGENT_LIMITS.MAX_CANDIDATES)
-  const omittedCount = Math.max(0, items.length - limited.length)
+  const priorityRefs = options.investigationCandidates?.map((c) => c.candidateRef) ?? []
 
-  const candidates: AgentPromptCandidate[] = limited.map((item, index) => {
-    const candidateRef = `candidate-${index + 1}`
+  const sourceItems =
+    options.investigationCandidates && options.investigationCandidates.length > 0
+      ? options.investigationCandidates
+          .map((candidate) => items.find((item) => item.id === candidate.candidateId))
+          .filter((item): item is ScanItem => item !== undefined)
+      : items.slice(0, AGENT_LIMITS.MAX_CANDIDATES)
+
+  const omittedCount = Math.max(0, items.length - sourceItems.length)
+
+  const candidates: AgentPromptCandidate[] = sourceItems.map((item, index) => {
+    const candidateRef = idToRef?.get(item.id) ?? `candidate-${index + 1}`
     refToId.set(candidateRef, item.id)
     return {
       candidateRef,
@@ -128,15 +147,20 @@ export function buildAgentPromptPayload(
     schemaVersion: '1',
     candidateCount: candidates.length,
     omittedCount,
+    investigationPriorityRefs: priorityRefs.filter((ref) => refToId.has(ref)),
     candidates
   }
 
   let requestBytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength
   while (requestBytes > AGENT_LIMITS.MAX_REQUEST_BYTES && candidates.length > 1) {
-    candidates.pop()
-    const lastRef = `candidate-${candidates.length + 1}`
-    refToId.delete(lastRef)
+    const removed = candidates.pop()
+    if (removed) {
+      refToId.delete(removed.candidateRef)
+    }
     payload.candidateCount = candidates.length
+    payload.investigationPriorityRefs = payload.investigationPriorityRefs.filter((ref) =>
+      refToId.has(ref)
+    )
     payload.omittedCount = items.length - candidates.length
     requestBytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength
   }
@@ -150,10 +174,19 @@ export function buildAgentPromptPayload(
   }
 }
 
+const INVESTIGATION_TURN_INSTRUCTIONS = `
+
+多轮调查协议（仅当信息不足时使用）：
+- 若需只读调查，返回严格 JSON：{"schemaVersion":1,"action":"investigate","purpose":"简短目的","calls":[{"candidateRef":"candidate-N","tool":"summarize_directory|list_children|sample_entry_names","relativePath":".","depth":1}]}
+- 若可给出最终建议，返回：{"schemaVersion":1,"action":"final","result":{...AgentModelResponse v1...}}
+- 或直接返回 AgentModelResponse v1（无 action 字段）。
+- calls 每轮最多 4 个；只能请求 investigationPriorityRefs 中的 candidateRef；不得包含 sessionId、candidateId、绝对路径。
+- purpose 仅简短说明调查目的，不得输出推理过程。`
+
 export function buildAgentMessages(
   items: ScanItem[],
-  options: SanitizePathOptions = {}
-): { messages: Array<{ role: 'system' | 'user'; content: string }>; build: BuildAgentPromptResult } {
+  options: BuildAgentPromptOptions = {}
+): { messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>; build: BuildAgentPromptResult } {
   const build = buildAgentPromptPayload(items, options)
   if (build.requestBytes > AGENT_LIMITS.MAX_REQUEST_BYTES) {
     throw new Error('PROMPT_TOO_LARGE')
@@ -161,13 +194,19 @@ export function buildAgentMessages(
   return {
     build,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: `${SYSTEM_PROMPT}${INVESTIGATION_TURN_INSTRUCTIONS}` },
       {
         role: 'user',
         content: `请分析以下扫描摘要并返回 JSON：\n${JSON.stringify(build.payload)}`
       }
     ]
   }
+}
+
+export function measureConversationBytes(
+  messages: Array<{ role: string; content: string }>
+): number {
+  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
 }
 
 export function getAgentSystemPrompt(): string {

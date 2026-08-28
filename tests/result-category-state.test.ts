@@ -1,56 +1,78 @@
 import { describe, expect, it } from 'vitest'
 import type { ScanItem } from '../src/shared/types'
+import { normalizeCandidate } from '../src/shared/candidate-model'
 import {
   ResultCategoryViewState,
-  firstCategoryWithItems,
-  resolveActiveResultCategory
+  firstDisplayCategoryWithItems,
+  resolveActiveResultCategory,
+  type CleanupDisplayCategory
 } from '../src/renderer/result-category-state'
 
-function item(id: string, category: ScanItem['category']): ScanItem {
-  return {
+function item(id: string, category: CleanupDisplayCategory): ScanItem {
+  const legacyCategory =
+    category === 'recommended-clean' ? 'safe' : category === 'caution-clean' ? 'recommended' : 'dangerous'
+  return normalizeCandidate({
     id,
-    category,
+    ruleId: 'rule',
     ruleName: 'rule',
+    category: legacyCategory,
     name: id,
     path: `C:\\${id}`,
     size: 100,
     drive: 'C:',
     contentType: 'system-temp',
     reason: '',
-    impact: ''
-  }
+    impact: '',
+    deletable: category === 'recommended-clean',
+    autoSelect: false,
+    snapshotComplete: true,
+    sizeIsEstimate: true,
+    entryKind: 'directory',
+    source: 'rule',
+    discoverySources: ['rule'],
+    evidence: [],
+    judgment: {
+      status: category === 'recommended-clean' ? 'suggested' : 'caution',
+      source: 'legacy-rule',
+      confidence: 'high',
+      basis: [],
+      judgmentOrigin: 'local-rule'
+    },
+    selection: { selectable: category === 'recommended-clean' },
+    suggestedAction: 'none'
+  })
 }
 
 describe('result category view state', () => {
   it('uses firstCategoryWithItems when user has not selected a tab', () => {
-    const items = [item('a', 'safe'), item('b', 'recommended')]
-    expect(resolveActiveResultCategory(items, null)).toBe('safe')
-    expect(firstCategoryWithItems(items)).toBe('safe')
+    const items = [item('a', 'recommended-clean'), item('b', 'caution-clean')]
+    expect(resolveActiveResultCategory(items, null)).toBe('recommended-clean')
+    expect(firstDisplayCategoryWithItems(items)).toBe('recommended-clean')
   })
 
-  it('keeps recommended after user selection across incremental batches', () => {
+  it('keeps caution-clean after user selection across incremental batches', () => {
     const state = new ResultCategoryViewState()
-    const safeOnly = [item('a', 'safe')]
-    state.select('recommended')
-    expect(state.resolveActiveCategory(safeOnly)).toBe('recommended')
+    const safeOnly = [item('a', 'recommended-clean')]
+    state.select('caution-clean')
+    expect(state.resolveActiveCategory(safeOnly)).toBe('caution-clean')
 
-    const mixed = [item('a', 'safe'), item('b', 'recommended')]
-    expect(state.resolveActiveCategory(mixed)).toBe('recommended')
+    const mixed = [item('a', 'recommended-clean'), item('b', 'caution-clean')]
+    expect(state.resolveActiveCategory(mixed)).toBe('caution-clean')
   })
 
-  it('keeps dangerous after scan completes', () => {
+  it('keeps space-occupancy after scan completes', () => {
     const state = new ResultCategoryViewState()
-    state.select('dangerous')
-    const finalItems = [item('a', 'safe'), item('b', 'dangerous')]
-    expect(state.resolveActiveCategory(finalItems)).toBe('dangerous')
+    state.select('space-occupancy')
+    const finalItems = [item('a', 'recommended-clean'), item('b', 'space-occupancy')]
+    expect(state.resolveActiveCategory(finalItems)).toBe('space-occupancy')
   })
 
   it('clears user selection when a new scan starts', () => {
     const state = new ResultCategoryViewState()
-    state.select('dangerous')
+    state.select('space-occupancy')
     state.clear()
-    const items = [item('a', 'safe')]
-    expect(state.resolveActiveCategory(items)).toBe('safe')
+    const items = [item('a', 'recommended-clean')]
+    expect(state.resolveActiveCategory(items)).toBe('recommended-clean')
     expect(state.hasUserSelection()).toBe(false)
   })
 })

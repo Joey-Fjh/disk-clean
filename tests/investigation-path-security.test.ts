@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { afterEach, describe, expect, it } from 'vitest'
 import { normalizeRelativePath, resolveInvestigationPath } from '../src/main/agent/investigation/path-security'
 import { normalizeCandidate } from '../src/shared/candidate-model'
+import { DEFAULT_PATH_ACCESS_POLICY } from '../src/shared/path-access-policy'
 
 describe('investigation relative path validation', () => {
   it('accepts safe relative paths', () => {
@@ -22,7 +23,7 @@ describe('investigation relative path validation', () => {
   })
 })
 
-describe('investigation protected path blocking', () => {
+describe('investigation path access tiers', () => {
   let root = ''
 
   afterEach(() => {
@@ -32,7 +33,74 @@ describe('investigation protected path blocking', () => {
     }
   })
 
-  it('rejects protected resolved targets', async () => {
+  it('rejects denyRead system paths', async () => {
+    const candidate = normalizeCandidate({
+      id: 'item-sys',
+      ruleId: '__analyzer__',
+      ruleName: 'System',
+      category: 'dangerous',
+      contentType: 'system-protected',
+      drive: 'C:',
+      path: 'C:\\Windows\\System32',
+      size: 1,
+      sizeIsEstimate: true,
+      snapshotComplete: true,
+      entryKind: 'directory',
+      deletable: false,
+      autoSelect: false,
+      source: 'analyzer'
+    })
+
+    await expect(
+      resolveInvestigationPath({
+        candidate,
+        relativePath: '',
+        protectedPaths: [],
+        accessPolicy: DEFAULT_PATH_ACCESS_POLICY
+      })
+    ).rejects.toMatchObject({ code: 'PROTECTED_PATH' })
+  })
+
+  it('allows read-only investigation for Program Files paths', async () => {
+    root = mkdtempSync(join(tmpdir(), 'disk-clean-pf-'))
+    const programFiles = join(root, 'Program Files', 'Vendor', 'app')
+    mkdirSync(programFiles, { recursive: true })
+
+    const candidate = normalizeCandidate({
+      id: 'item-pf',
+      ruleId: '__analyzer__',
+      ruleName: 'Large Dir',
+      category: 'dangerous',
+      contentType: 'large-dir',
+      drive: 'C:',
+      path: programFiles,
+      size: 1,
+      sizeIsEstimate: true,
+      snapshotComplete: true,
+      entryKind: 'directory',
+      deletable: false,
+      autoSelect: false,
+      source: 'analyzer'
+    })
+
+    const policy = {
+      ...DEFAULT_PATH_ACCESS_POLICY,
+      readOnlyHighRisk: [root]
+    }
+
+    await expect(
+      resolveInvestigationPath({
+        candidate,
+        relativePath: '',
+        protectedPaths: [programFiles],
+        accessPolicy: policy
+      })
+    ).resolves.toMatchObject({
+      targetPath: expect.stringContaining('Vendor')
+    })
+  })
+
+  it('does not block generic protected paths that are not denyRead', async () => {
     root = mkdtempSync(join(tmpdir(), 'disk-clean-protected-'))
     mkdirSync(root, { recursive: true })
     const candidate = normalizeCandidate({
@@ -58,6 +126,6 @@ describe('investigation protected path blocking', () => {
         relativePath: '',
         protectedPaths: [root]
       })
-    ).rejects.toMatchObject({ code: 'PROTECTED_PATH' })
+    ).resolves.toMatchObject({ candidateRoot: root })
   })
 })

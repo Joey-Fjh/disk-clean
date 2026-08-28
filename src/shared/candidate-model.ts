@@ -5,12 +5,20 @@ import type {
   Category,
   ConfidenceLevel,
   DiscoverySource,
+  JudgmentOrigin,
   JudgmentStatus,
+  LocalExecutionSafety,
   OccupancyObservation,
   ScanItem,
   SuggestedAction
 } from './types'
 import { normalizeScanPath } from './scan-path'
+import {
+  canAgentSessionAuthorizeCleanup,
+  isAdviceOnlyExecution,
+  isExecutionPermanentlyBlocked,
+  resolveExecutionSafety
+} from './execution-safety'
 import {
   hasLocalCleanupAuthorization,
   mergeAgentReviewIntoJudgment,
@@ -39,8 +47,9 @@ export function judgmentStatusFromLegacyCategory(category: Category): JudgmentSt
   return 'keep'
 }
 
-export function legacyCategoryFromJudgment(status: JudgmentStatus): Category {
-  if (status === 'identifying' || status === 'pending') return 'dangerous'
+export function legacyCategoryFromJudgment(status: JudgmentStatus, origin?: JudgmentOrigin): Category {
+  if (origin === 'protected-policy') return 'recommended'
+  if (status === 'identifying' || status === 'pending') return 'recommended'
   if (status === 'suggested') return 'safe'
   if (status === 'caution' || status === 'uncertain') return 'recommended'
   return 'dangerous'
@@ -165,20 +174,41 @@ export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): Ca
   if (judgment.status === 'pending') {
     return { selectable: false, notSelectableReason: PENDING_REASON }
   }
-  if (judgment.judgmentOrigin === 'protected-policy' || judgment.judgmentOrigin === 'agent-advice-only') {
+  if (judgment.judgmentOrigin === 'protected-policy' || isExecutionPermanentlyBlocked(item)) {
     return {
       selectable: false,
-      notSelectableReason:
-        judgment.judgmentOrigin === 'protected-policy'
-          ? '命中受保护路径，禁止清理'
-          : ANALYZER_ONLY_AGENT_ADVICE_REASON
+      notSelectableReason: '命中受保护路径，禁止清理'
     }
   }
-  if (isAnalyzerOnlyItem(item) && judgment.source === 'agent') {
+  if (judgment.judgmentOrigin === 'agent-advice-only') {
     return { selectable: false, notSelectableReason: ANALYZER_ONLY_AGENT_ADVICE_REASON }
   }
   if (judgment.status === 'uncertain') {
     return { selectable: false, notSelectableReason: '信息不足，无法确定是否可清理' }
+  }
+  if (judgment.status === 'keep') {
+    return { selectable: false, notSelectableReason: item.impact ?? '建议保留，不建议清理' }
+  }
+  if (isRuleBacked(item) && !item.snapshotComplete) {
+    return { selectable: false, notSelectableReason: INCOMPLETE_SNAPSHOT_REASON }
+  }
+  if (isAdviceOnlyExecution(item)) {
+    return {
+      selectable: false,
+      notSelectableReason: item.impact ?? ANALYZER_ONLY_AGENT_ADVICE_REASON
+    }
+  }
+  if (judgment.judgmentOrigin === 'agent-session') {
+    if (!item.snapshotComplete) {
+      return { selectable: false, notSelectableReason: INCOMPLETE_SNAPSHOT_REASON }
+    }
+    if (!canAgentSessionAuthorizeCleanup(item)) {
+      return { selectable: false, notSelectableReason: ANALYZER_ONLY_AGENT_ADVICE_REASON }
+    }
+    return { selectable: true }
+  }
+  if (isAnalyzerOnlyItem(item) && judgment.source === 'agent') {
+    return { selectable: false, notSelectableReason: ANALYZER_ONLY_AGENT_ADVICE_REASON }
   }
   if (judgment.agentVerdict === 'uncertain') {
     return { selectable: false, notSelectableReason: 'Agent 复核后建议谨慎处理，不默认勾选' }
@@ -186,11 +216,11 @@ export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): Ca
   if (judgment.status === 'caution' && judgment.judgmentOrigin === 'space-evidence-only') {
     return { selectable: false, notSelectableReason: PENDING_REASON }
   }
-  if (judgment.status === 'keep') {
-    return { selectable: false, notSelectableReason: item.impact ?? '建议保留，不建议清理' }
+  if (item.executionSafety === 'rule-eligible' && hasLocalCleanupAuthorization(item)) {
+    return { selectable: true }
   }
-  if (isRuleBacked(item) && !item.snapshotComplete) {
-    return { selectable: false, notSelectableReason: INCOMPLETE_SNAPSHOT_REASON }
+  if (item.executionSafety !== 'rule-eligible' && isRuleBacked(item)) {
+    return { selectable: false, notSelectableReason: item.impact ?? '当前规则不允许清理' }
   }
   if (!item.deletable) {
     return { selectable: false, notSelectableReason: item.impact ?? '当前规则不允许清理' }
@@ -199,6 +229,11 @@ export function deriveSelection(item: ScanItem, judgment: CandidateJudgment): Ca
 }
 
 export function deriveSuggestedAction(item: ScanItem, judgment: CandidateJudgment): SuggestedAction {
+  if (judgment.judgmentOrigin === 'agent-session' && item.snapshotComplete) {
+    if (judgment.status === 'keep' || judgment.agentVerdict === 'keep') return 'none'
+    if (judgment.status === 'uncertain' || judgment.agentVerdict === 'uncertain') return 'none'
+    return 'recycle'
+  }
   if (
     judgment.status === 'identifying' ||
     judgment.status === 'pending' ||
@@ -217,19 +252,17 @@ export function deriveSuggestedAction(item: ScanItem, judgment: CandidateJudgmen
 export function mapSpaceScanItem(item: ScanItem): ScanItem {
   const judgment = deriveIdentifyingJudgment(item)
   const discoverySources: DiscoverySource[] = ['space-scan']
-  const selection = deriveSelection({ ...item, deletable: false }, judgment)
+  const executionSafety: LocalExecutionSafety = 'advice-only'
 
   return normalizeCandidate({
     ...item,
     source: 'analyzer',
     category: 'dangerous',
-    deletable: false,
     autoSelect: false,
     discoverySources,
     evidence: [],
     judgment,
-    selection,
-    suggestedAction: 'none'
+    executionSafety
   })
 }
 
@@ -241,7 +274,7 @@ export function mapRuleScanItem(item: ScanItem): ScanItem {
     discoverySources: ['rule'],
     evidence: [],
     judgment: local,
-    category: legacyCategoryFromJudgment(local.status)
+    category: legacyCategoryFromJudgment(local.status, local.judgmentOrigin)
   })
 }
 
@@ -271,13 +304,15 @@ export function normalizeCandidate(item: ScanItem): ScanItem {
       ? mergeEvidenceLists([], item.evidence)
       : buildEvidenceForItem({ ...item, occupancyObservation })
 
-  const category = legacyCategoryFromJudgment(judgment.status)
-  const selection = deriveSelection(item, judgment)
-  const suggestedAction = deriveSuggestedAction(item, judgment)
+  const category = legacyCategoryFromJudgment(judgment.status, judgment.judgmentOrigin)
+  const executionSafety = item.executionSafety ?? resolveExecutionSafety(item)
+  const normalizedItem = { ...item, executionSafety }
+  const selection = deriveSelection(normalizedItem, judgment)
+  const suggestedAction = deriveSuggestedAction(normalizedItem, judgment)
   const deletable = selection.selectable
 
   return {
-    ...item,
+    ...normalizedItem,
     category,
     deletable,
     discoverySources,
@@ -346,7 +381,7 @@ export function mergeScanCandidates(existing: ScanItem, incoming: ScanItem): Sca
     discoverySources,
     evidence,
     judgment: deriveIdentifyingJudgment(spaceItem),
-    deletable: false
+    executionSafety: spaceItem.executionSafety ?? 'advice-only'
   })
 }
 
@@ -384,20 +419,8 @@ export function applyAgentJudgmentToItem(
 ): ScanItem {
   const localJudgment = resolveLocalJudgment(item, protectedPath)
   const judgment = mergeAgentReviewIntoJudgment(item, localJudgment, agent, protectedPath)
-  const preservedDeletable =
-    judgment.judgmentOrigin === 'protected-policy' ||
-    judgment.judgmentOrigin === 'agent-advice-only' ||
-    judgment.status === 'keep' ||
-    judgment.agentVerdict === 'keep' ||
-    judgment.agentVerdict === 'uncertain'
-      ? false
-      : hasLocalCleanupAuthorization(item)
-        ? item.deletable
-        : false
-
   return normalizeCandidate({
     ...item,
-    deletable: preservedDeletable,
     judgment
   })
 }

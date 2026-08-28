@@ -11,6 +11,8 @@ import {
   enableApprovedRuleDraft,
   getActiveScanSessionPublic,
   getSafetyPolicy,
+  copyBuiltInRuleAsDraft,
+  updateRuleDraftContent,
   importRuleDraftFromJson,
   listRulePacks,
   listStoredRuleDrafts,
@@ -28,6 +30,7 @@ import { buildRuleWritingPack, assertWritingPackSafe } from './rule-draft-writin
 import { loadUserRulePackState } from './rule-draft-store'
 import { RULE_DRAFT_LIMITS } from '../../shared/rule-draft-limits'
 import { assertImportJsonSize } from './rule-store-sanitizer'
+import { RuleDraftValidationError } from './rule-draft-validator'
 import type { AgentGenerateRuleDraftRequest } from '../../shared/rule-layer-types'
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
@@ -200,6 +203,35 @@ export function registerRuleLayerIpc(): void {
     } catch (error) {
       if (error instanceof AgentError) return agentIpcFail(error.code, error.message)
       return agentIpcFail('INTERNAL_ERROR', '删除草稿失败')
+    }
+  })
+
+  ipcMain.handle('rules:updateDraft', (event, draftId: unknown, patch: unknown) => {
+    try {
+      assertTrustedSender(event)
+      if (typeof draftId !== 'string' || !patch || typeof patch !== 'object') {
+        throw new AgentError('INVALID_INPUT', '无效请求')
+      }
+      return agentIpcOk(updateRuleDraftContent(draftId, patch as Record<string, unknown>))
+    } catch (error) {
+      if (error instanceof RuleDraftValidationError) return agentIpcFail('DRAFT_VALIDATION_FAILED', error.message)
+      if (error instanceof AgentError) return agentIpcFail(error.code, error.message)
+      return agentIpcFail('INTERNAL_ERROR', '更新规则失败')
+    }
+  })
+
+  ipcMain.handle('rules:copyBuiltinAsDraft', (event, ruleId: unknown) => {
+    try {
+      assertTrustedSender(event)
+      if (typeof ruleId !== 'string') throw new AgentError('INVALID_INPUT', '无效请求')
+      const rule = listRulePacks()
+        .flatMap((pack) => pack.rules)
+        .find((item) => item.id === ruleId)
+      if (!rule) throw new AgentError('INVALID_INPUT', '内置规则不存在')
+      return agentIpcOk(copyBuiltInRuleAsDraft(rule))
+    } catch (error) {
+      if (error instanceof AgentError) return agentIpcFail(error.code, error.message)
+      return agentIpcFail('INTERNAL_ERROR', '复制规则失败')
     }
   })
 

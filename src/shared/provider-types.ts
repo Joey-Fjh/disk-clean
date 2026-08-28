@@ -16,6 +16,10 @@ export type ProviderErrorCode =
   | 'INVALID_INPUT'
   | 'KEY_REENTRY_REQUIRED'
   | 'IPC_UNAUTHORIZED'
+  | 'PROFILE_NOT_FOUND'
+  | 'PROFILE_LIMIT_REACHED'
+
+export const PROVIDER_CONFIG_SCHEMA_VERSION = '2' as const
 
 export interface ProviderPresetInfo {
   id: ProviderId
@@ -24,6 +28,7 @@ export interface ProviderPresetInfo {
   defaultBaseUrl: string
 }
 
+/** @deprecated 使用 ProviderProfilePublic；保留供 Agent 内部快照映射。 */
 export interface ProviderConfigPublic {
   providerId: ProviderId
   protocol: ProviderProtocol
@@ -33,11 +38,48 @@ export interface ProviderConfigPublic {
   keyLastFour?: string
 }
 
-export interface SaveProviderConfigInput {
+export interface ProviderProfilePublic {
+  id: string
+  name: string
+  providerId: ProviderId
+  protocol: ProviderProtocol
+  baseUrl: string
+  model: string
+  hasKey: boolean
+  keyLastFour?: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProviderProfilesPublicState {
+  activeProfileId: string | null
+  profiles: ProviderProfilePublic[]
+}
+
+export interface CreateProviderProfileInput {
+  name: string
+  providerId: ProviderId
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
+export interface UpdateProviderProfileInput {
+  profileId: string
+  name: string
   providerId: ProviderId
   baseUrl: string
   model: string
   /** 留空表示保留现有 Key（仅当 Origin 未变）；Origin 变更须重新输入 Key。 */
+  apiKey?: string
+}
+
+/** @deprecated 仅测试/内部迁移；Renderer 应使用 create/update Profile。 */
+export interface SaveProviderConfigInput {
+  providerId: ProviderId
+  baseUrl: string
+  model: string
   apiKey?: string
 }
 

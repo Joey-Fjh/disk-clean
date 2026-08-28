@@ -14,14 +14,21 @@ describe('provider IPC contract', () => {
     expect(dts).not.toMatch(/getDecryptedApiKey|decryptApiKey|apiKey:\s*string/)
 
     for (const method of [
-      'getProviderConfig',
-      'saveProviderConfig',
-      'deleteProviderApiKey',
+      'listProviderProfiles',
+      'createProviderProfile',
+      'updateProviderProfile',
+      'deleteProviderProfile',
+      'setActiveProviderProfile',
       'testProviderConnection',
       'testProviderCapability'
     ]) {
       expect(preload).toContain(method)
       expect(dts).toContain(method)
+    }
+
+    for (const legacy of ['getProviderConfig', 'saveProviderConfig', 'deleteProviderApiKey']) {
+      expect(preload).not.toContain(legacy)
+      expect(dts).not.toContain(legacy)
     }
   })
 
@@ -31,12 +38,17 @@ describe('provider IPC contract', () => {
     expect(ipc).toMatch(/providerIpcFail/)
     expect(ipc).not.toMatch(/serializeProviderError/)
     expect(ipc).toMatch(/isTrustedMainWindowSender/)
+    expect(ipc).toContain('provider:listProfiles')
+    expect(ipc).toContain('provider:createProfile')
+    expect(ipc).not.toContain('provider:getConfig')
+    expect(ipc).not.toContain('provider:saveConfig')
   })
 
-  it('public provider config type excludes plaintext key', () => {
+  it('public provider profile type excludes plaintext key', () => {
     const types = readFileSync(join(process.cwd(), 'src/shared/provider-types.ts'), 'utf-8')
     expect(types).toMatch(/hasKey:\s*boolean/)
     expect(types).toMatch(/keyLastFour\?:/)
-    expect(types).not.toMatch(/apiKey:\s*string/)
+    expect(types).toMatch(/ProviderProfilePublic/)
+    expect(types).not.toMatch(/encryptedApiKey/)
   })
 })

@@ -5,10 +5,12 @@ import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProviderConfigStore } from '../src/main/provider/provider-config-store'
 import {
-  handleProviderDeleteApiKey,
-  handleProviderGetConfig,
-  handleProviderSaveConfig,
-  handleProviderTestConnection
+  handleProviderCreateProfile,
+  handleProviderDeleteProfile,
+  handleProviderListProfiles,
+  handleProviderSetActiveProfile,
+  handleProviderTestConnection,
+  handleProviderUpdateProfile
 } from '../src/main/provider/provider-ipc'
 import { setProviderStoreForTests } from '../src/main/provider/provider-service'
 import { setTrustedSenderCheckerForTests } from '../src/main/window-security'
@@ -27,15 +29,15 @@ function mockSafeStorage() {
 
 const tempDirs: string[] = []
 
-function installTempStore(): void {
+function installTempStore(): ProviderConfigStore {
   const dir = mkdtempSync(join(tmpdir(), 'disk-clean-provider-ipc-'))
   tempDirs.push(dir)
-  setProviderStoreForTests(
-    new ProviderConfigStore({
-      configPath: join(dir, 'provider-config.json'),
-      safeStorage: mockSafeStorage()
-    })
-  )
+  const store = new ProviderConfigStore({
+    configPath: join(dir, 'provider-config.json'),
+    safeStorage: mockSafeStorage()
+  })
+  setProviderStoreForTests(store)
+  return store
 }
 
 afterEach(() => {
@@ -50,7 +52,7 @@ describe('provider IPC security and error contract', () => {
   it('rejects unauthorized sender with structured IPC_UNAUTHORIZED', () => {
     setTrustedSenderCheckerForTests((sender) => sender.id === 100)
 
-    const result = handleProviderGetConfig(mockEvent(1))
+    const result = handleProviderListProfiles(mockEvent(1))
     expect(result).toEqual({
       ok: false,
       code: 'IPC_UNAUTHORIZED',
@@ -62,15 +64,20 @@ describe('provider IPC security and error contract', () => {
     installTempStore()
     setTrustedSenderCheckerForTests((sender) => sender.id === 1)
 
-    const saveOpenAi = handleProviderSaveConfig(mockEvent(1), {
+    const created = handleProviderCreateProfile(mockEvent(1), {
+      name: 'OpenAI',
       providerId: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4o-mini',
       apiKey: 'sk-contract-test-key-1234'
     })
-    expect(saveOpenAi.ok).toBe(true)
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const profileId = created.value.profiles[0].id
 
-    const saveDeepSeek = handleProviderSaveConfig(mockEvent(1), {
+    const saveDeepSeek = handleProviderUpdateProfile(mockEvent(1), {
+      profileId,
+      name: 'DeepSeek',
       providerId: 'deepseek',
       baseUrl: 'https://api.deepseek.com/v1',
       model: 'deepseek-chat'
@@ -85,7 +92,8 @@ describe('provider IPC security and error contract', () => {
   it('returns structured INVALID_INPUT for oversized IPC payload', () => {
     setTrustedSenderCheckerForTests((sender) => sender.id === 1)
 
-    const result = handleProviderSaveConfig(mockEvent(1), {
+    const result = handleProviderCreateProfile(mockEvent(1), {
+      name: 'OpenAI',
       providerId: 'openai',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4o-mini',
@@ -98,25 +106,36 @@ describe('provider IPC security and error contract', () => {
     })
   })
 
-  it('allows trusted sender for provider test IPC', async () => {
+  it('allows trusted sender for provider test IPC with profileId only', async () => {
     installTempStore()
     setTrustedSenderCheckerForTests((sender) => sender.id === 1)
 
-    const result = await handleProviderTestConnection(mockEvent(1))
+    const result = await handleProviderTestConnection(mockEvent(1), { profileId: 'missing-profile' })
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.value.success).toBe(false)
-      expect(result.value.errorCode).toBe('CONFIG_MISSING')
+      expect(result.value.errorCode).toBe('PROFILE_NOT_FOUND')
     }
   })
 
-  it('rejects unauthorized sender for delete key', () => {
+  it('rejects unauthorized sender for delete profile', () => {
     setTrustedSenderCheckerForTests((sender) => sender.id === 42)
 
-    const result = handleProviderDeleteApiKey(mockEvent(7))
+    const result = handleProviderDeleteProfile(mockEvent(7), { profileId: 'x' })
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.code).toBe('IPC_UNAUTHORIZED')
+    }
+  })
+
+  it('rejects setActive for unknown profile', () => {
+    installTempStore()
+    setTrustedSenderCheckerForTests((sender) => sender.id === 1)
+
+    const result = handleProviderSetActiveProfile(mockEvent(1), { profileId: 'missing' })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe('PROFILE_NOT_FOUND')
     }
   })
 })

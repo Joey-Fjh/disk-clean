@@ -42,6 +42,7 @@ export function compileRuleDraftToRuleConfig(draft: RuleDraftV1, draftId: string
     reason: draft.reason,
     impact: draft.impact,
     rebuildable: draft.rebuildable,
+    requiresAppClosed: draft.requiresAppClosed,
     cleanupStrategy: 'trash',
     deletable: resolveDeletable(draft),
     nativeManaged: false

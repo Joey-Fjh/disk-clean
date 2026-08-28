@@ -1,4 +1,16 @@
 import type { AgentVerdict } from './agent-types'
+import {
+  canAgentSessionAuthorizeCleanup,
+  resolveExecutionSafety
+} from './execution-safety'
+export {
+  canAgentSessionAuthorizeCleanup,
+  markCandidateAgentConfirmable,
+  resolveExecutionSafety,
+  hasRuleExecutionEligibility,
+  isAdviceOnlyExecution,
+  isExecutionPermanentlyBlocked
+} from './execution-safety'
 import type {
   CandidateJudgment,
   ConfidenceLevel,
@@ -11,6 +23,7 @@ export const JUDGMENT_ORIGIN_LABELS: Record<JudgmentOrigin, string> = {
   'local-rule': '本地规则',
   'local-rule-agent-reviewed': '本地规则 + Agent',
   'agent-advice-only': 'Agent 建议（未获清理授权）',
+  'agent-session': 'Agent 会话授权',
   'space-evidence-only': '仅空间发现',
   'protected-policy': '安全策略保护'
 }
@@ -20,14 +33,13 @@ export function isRuleBackedCandidate(item: ScanItem): boolean {
 }
 
 export function isSpaceOnlyCandidate(item: ScanItem): boolean {
-  return item.discoverySources.includes('space-scan') && !isRuleBackedCandidate(item)
+  return (item.discoverySources?.includes('space-scan') ?? false) && !isRuleBackedCandidate(item)
 }
 
 export function hasLocalCleanupAuthorization(item: ScanItem): boolean {
   if (!isRuleBackedCandidate(item)) return false
   if (!item.snapshotComplete) return false
-  if (item.deletable === false) return false
-  return true
+  return item.executionSafety === 'rule-eligible'
 }
 
 function verdictToStatus(verdict: AgentVerdict): JudgmentStatus {
@@ -40,10 +52,10 @@ function verdictToStatus(verdict: AgentVerdict): JudgmentStatus {
 export function resolveLocalJudgment(item: ScanItem, protectedPath: boolean): CandidateJudgment {
   if (protectedPath) {
     return {
-      status: 'keep',
+      status: 'uncertain',
       source: 'local-policy',
       confidence: 'high',
-      basis: ['命中受保护路径，禁止清理'],
+      basis: ['系统或程序目录：仅统计空间占用，不提供普通删除授权'],
       judgmentOrigin: 'protected-policy'
     }
   }
@@ -89,10 +101,10 @@ export function mergeAgentReviewIntoJudgment(
 ): CandidateJudgment {
   if (protectedPath) {
     return {
-      status: 'keep',
+      status: 'uncertain',
       source: 'local-policy',
       confidence: 'high',
-      basis: ['命中受保护路径，禁止清理'],
+      basis: ['系统或程序目录：仅统计空间占用，不提供普通删除授权'],
       judgmentOrigin: 'protected-policy',
       agentVerdict: agent?.verdict
     }
@@ -106,6 +118,26 @@ export function mergeAgentReviewIntoJudgment(
   const locallyAuthorized = hasLocalCleanupAuthorization(item)
 
   if (!locallyAuthorized) {
+    if (agent.verdict === 'clean' || agent.verdict === 'confirm') {
+      if (canAgentSessionAuthorizeCleanup(item)) {
+        return {
+          status: agentStatus === 'suggested' ? 'caution' : agentStatus,
+          source: 'agent',
+          confidence: agent.confidence,
+          basis: agent.basis,
+          judgmentOrigin: 'agent-session',
+          agentVerdict: agent.verdict
+        }
+      }
+      return {
+        status: agentStatus === 'suggested' ? 'caution' : agentStatus,
+        source: 'agent',
+        confidence: agent.confidence,
+        basis: agent.basis,
+        judgmentOrigin: 'agent-advice-only',
+        agentVerdict: agent.verdict
+      }
+    }
     return {
       status: agentStatus === 'suggested' ? 'caution' : agentStatus,
       source: 'agent',
@@ -167,6 +199,7 @@ export function shouldClearSelectionAfterAgent(
 ): boolean {
   if (judgment.status === 'keep') return true
   if (judgment.judgmentOrigin === 'agent-advice-only') return true
+  if (judgment.judgmentOrigin === 'agent-session') return false
   if (isAgentDowngrade(judgment, localJudgment) && judgment.status !== 'suggested') return true
   if (!hasLocalCleanupAuthorization(item) && judgment.source === 'agent') return true
   return false
@@ -174,12 +207,11 @@ export function shouldClearSelectionAfterAgent(
 
 export function finalizeLocalScanItem(item: ScanItem, protectedPath: boolean): ScanItem {
   const judgment = resolveLocalJudgment(item, protectedPath)
+  const executionSafety = resolveExecutionSafety({ ...item, judgment }, protectedPath)
   return {
     ...item,
     judgment,
-    deletable: protectedPath
-      ? false
-      : hasLocalCleanupAuthorization(item) && judgment.status !== 'keep'
+    executionSafety
   }
 }
 

@@ -15,6 +15,7 @@ describe('rule layer loader', () => {
     const packs = loadOfficialRulePacks()
 
     expect(safety.protectedPaths.length).toBeGreaterThan(0)
+    expect(safety.pathAccessPolicy.denyRead.length).toBeGreaterThan(0)
     expect(bundle.protectedPaths).toEqual(safety.protectedPaths)
     expect(packs.length).toBeGreaterThan(0)
     expect(bundle.rules.length).toBeGreaterThan(0)

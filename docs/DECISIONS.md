@@ -2,7 +2,7 @@
 
 记录讨论结论，方便换电脑后继续。
 
-最后更新：2026-08-26
+最后更新：2026-08-27
 
 ---
 
@@ -21,7 +21,7 @@
 
 **当前实现（迁移桥）**：在 Agent 未接入前，保留 `RuleScanner` 产出可清理项，否则全部 pending、无法清理。空间发现项为 `pending`；规则命中项为 `suggested`/`caution` 且可走现有 Validator。
 
-**何时改变**：阶段 4 Agent 写 judgment；阶段 6 Validator 迁移为会话 Candidate 授权。届时规则扫描的主流程地位逐步让位于「证据补充」。
+**何时改变**：阶段 6 已完成 Validator 会话授权迁移；规则扫描逐步降为证据补充。
 
 阶段 2 已于 2026-08-25 验收通过。
 
@@ -38,6 +38,20 @@
 | 连接测试 | 最小 Chat 请求（`ping`），非 `/models` |
 | 能力测试 | 固定 JSON 提示，本地解析；不发送扫描/Candidate 数据 |
 | 未做 | 多轮调查工具、扫描中增量调用模型、Validator 授权迁移（阶段 5+ / 6） |
+
+### 阶段 3.1：多模型配置管理（2026-08-27，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 存储 | `provider-config.json` schema **v2**：`profiles[]` + `activeProfileId` |
+| 迁移 | 阶段 3 单配置幂等迁移为一份默认 Profile；保留既有密文与 keyOrigin |
+| 多 Profile | 每份独立 Provider / URL / 模型 / Key；最多 20 份；ID 主进程生成 |
+| active | Agent 与规则草稿 Agent 仅使用 **active Profile**；无 Key 不自动 fallback |
+| 删除 | 删除整份 Profile（含 Key）；不再在测试区提供「删除 Key」 |
+| Renderer | 列表/表单安全 DOM；测试仅传 `profileId` |
+| 延后 | 扫描详情过重、空「正在分析」Tab、任务与分类生命周期同步（见 PHASE-3.1-REPORT） |
+
+详见 [PHASE-3.1-REPORT.md](./PHASE-3.1-REPORT.md)。
 
 ### 阶段 4 单轮智能分析（2026-08-26，已完成）
 
@@ -67,7 +81,7 @@
 | 参考 CC-Switch | 借鉴 Provider 预设、地址处理、协议兼容、模型映射与连接检测思路；**不依赖** CC-Switch 运行时 |
 | JSON 定位为证据层 | 规则 JSON 为**识别证据、保护信息与经验提示**；**不是**主要决策入口或执行必要条件 |
 | Agent 自动分析 | Agent **自动**形成整体清理判断；可优先深入大型/异常目录，**不限于**未匹配 JSON 的项 |
-| 执行授权（目标） | 无 JSON 规则的 Agent 候选项在用户确认后**可**进入 Plan；授权依据为会话候选项 + 确认 + 本地安全策略（见 PRODUCT §5）；**当前 Validator 仍依赖规则匹配，待阶段 6 迁移** |
+| 执行授权 | 阶段 6 已迁移为会话候选项授权（`agent-session` + `local-rule` + `confirmationId`）；见 [SESSION-CLEANUP-AUTHORIZATION.md](./SESSION-CLEANUP-AUTHORIZATION.md) |
 | 无法确定不可删 | 「无法确定」项默认**不可选择清理** |
 | 只读调查工具 | Agent 仅可使用**受限、只读**的调查工具；无 Shell、无任意删除 |
 | 确认与执行不可绕过 | 用户确认 + `SafetyValidator` + 本地 Cleaner 为硬性门槛；模型不能绕过 |
@@ -158,7 +172,7 @@ ScanEngine（默认 mode = combined）
 
 内部仍保留 `quick` / `full` 遗留模式（测试与兼容），用户界面不再暴露。
 
-**待迁移**：Agent 成为主要判断者；规则/JSON 降为证据层；Validator 改为会话候选项授权（阶段 6）。
+**阶段 6 已完成**：Validator 已迁移为会话候选项授权；规则/JSON 逐步降为证据层（阶段 7 深化经验库）。
 
 ### 三档风险（当前 UI）
 
@@ -305,6 +319,27 @@ config/
 
 ---
 
+## 阶段 4.2：统一清理模型与内置规则审计（2026-08-27，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 统一任务 | 一次清理 = scanning → organizing → analyzing → planning → completed/failed/cancelled；无 Key / 有 Key 同一流程 |
+| 结果分类 | 5 个稳定分类：建议清理 / 谨慎清理 / 高风险操作 / **空间占用** / 建议保留；进行中临时「正在识别」「正在分析」 |
+| protected 语义 | **空间占用**，非「待判断 / 不建议」；限制**清理动作**，不限制 Agent 只读分析（5A/5B） |
+| 大文件 ≠ 垃圾 | 空间占用类默认不可批量删除；体积 alone 不授予 deletable |
+| app-logs | `reviewStatus: disabled`；过宽 `%LOCALAPPDATA%/**/Logs` 不再自动授权 |
+| 浏览器规则 | 收窄 `globDirs`；`exclusions` 排除 Cookie/History/Extensions 等 |
+| Temp 规则 | `maxAgeDays: 7`；跳过近期与占用中文件 |
+| developer/agent 默认 | 全部 `defaultChecked: false`；缺少验证信息不得默认勾选 |
+| 规则元数据 | `source`、`reviewStatus`、`requiresAppClosed`、`cleanupMethod` 等写入官方规则并在规则中心展示 |
+| 首页规则闭环 | 预览 + 启用 + 重扫提示在清理页完成，不要求切换设置页 |
+| 5B 契约 | `agent-candidate-prep.ts` 自动选取调查候选；本轮不实现多轮工具循环 |
+| 未做 | 3.1 多 Provider、5B 编排、6 Validator 迁移、Shell、规则市场 |
+
+详见 [PHASE-4.2-REPORT.md](./PHASE-4.2-REPORT.md)、[CLEANUP-TASK-MODEL.md](./CLEANUP-TASK-MODEL.md)、[BUILTIN-RULE-AUDIT.md](./BUILTIN-RULE-AUDIT.md)。
+
+---
+
 ## 阶段 5A：只读调查基础设施（2026-08-27，已完成）
 
 | 决策 | 说明 |
@@ -318,6 +353,43 @@ config/
 | UI | 本轮仅最小状态标签；完整时间线留 5B |
 
 详见 [INVESTIGATION-TOOLS.md](./INVESTIGATION-TOOLS.md)、[PHASE-5A-REPORT.md](./PHASE-5A-REPORT.md)。
+
+---
+
+## 阶段 5B：多轮调查编排与时间线 UI（2026-08-27，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 入口 | 统一 `runAgentAnalysis()`；有 Key 时委托 `runInvestigationOrchestration()` |
+| 候选引用 | canonical `candidateRef`；Prompt 缩减后工具白名单与 `build.refToId` 取交集 |
+| 时间线 | 主进程 generation 权威；实时仅 `investigation_started` 绑定；最终 IPC 快照可独立绑定 |
+| 任务态 | 首次分析与重试共用生命周期回调；停止 Agent 为 `completed + agentStatus=cancelled` |
+| ref 注册表 | 新扫描清空；调查终态 `releaseCandidateRefMap`；32 条历史上限 |
+| 未做 | UI 集中调整（延后） |
+
+详见 [PHASE-5B-REPORT.md](./PHASE-5B-REPORT.md)、[INVESTIGATION-ORCHESTRATION.md](./INVESTIGATION-ORCHESTRATION.md)。
+
+---
+
+## 阶段 6：清理计划与执行闭环（2026-08-27 交付，2026-08-28 复审通过，已完成）
+
+| 决策 | 说明 |
+|------|------|
+| 授权模型 | 主进程 `evaluateSessionCleanupAuthorization`；来源 `agent-session` / `local-rule` / `protected-policy` / `none` |
+| IPC 契约 | Renderer 仅 `sessionId` + `fingerprint` + `candidateIds`；execute 仅 `confirmationId` |
+| 两步确认 | `prepareCleanupConfirmation` → 预览 + 一次性 token；`executeConfirmedCleanup` 消费；tombstone / TTL / 容量上限 |
+| Agent 授权 | `LocalExecutionSafety`（`agent-confirmable` 等）；`clean`/`confirm` + `snapshotComplete`；仅展示占用项保持 `agent-advice-only` |
+| 规则兼容 | 启用规则仍走 `local-rule`；`cleanupMethod !== trash` → `ACTION_NOT_ALLOWED` |
+| TOCTOU — 快照创建 | `validateAndCreateCleanupExecutionSnapshot` 单次 `lstat` 原子校验 + 身份捕获；目录测量后 anchor 复验 |
+| TOCTOU — Cleaner 执行 | 每项 `trashItem` 前 `verifyCleanupExecutionSnapshot`；目录：递归测量后**第二次** `lstat` + identity anchor 复验 |
+| 身份锚点 | 生产路径 `lstat(path, { bigint: true })`；`dev`/`ino`/`birthtimeNs`/`ctimeNs`/`mtimeNs`/`size` 存字符串；`captureMode`；非 bigint 环境失败关闭 |
+| 快照隔离 | 单项校验失败 → `SNAPSHOT_STALE`，不中断同批其余项 |
+| 复扫生命周期 | `planScanPreflight` + `commitScanPreflight`；全部确认通过后才放弃复扫上下文；失败 / 取消 / 重试 / 防并发闭环 |
+| Cleaner | 仅 trash；不接受外部路径计划 |
+| 复核 | 执行后 bump revision + 自动重扫 + `CleanupOutcomeManifest` 对比 |
+| 未做 | 阶段 7；UI 集中调整；commit / push |
+
+详见 [SESSION-CLEANUP-AUTHORIZATION.md](./SESSION-CLEANUP-AUTHORIZATION.md)、[PHASE-6-REPORT.md](./PHASE-6-REPORT.md)。
 
 ---
 

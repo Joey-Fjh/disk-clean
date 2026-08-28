@@ -143,6 +143,7 @@ export function buildScanItemRenderInput(
         ? '安全检查：命中受保护目录'
         : '安全检查：未命中受保护目录',
     impactSummary: item.impact ? `影响说明：${item.impact}` : undefined,
+    appClosedWarning: item.requiresAppClosed ? '清理前请关闭相关软件' : undefined,
     notSelectableReason: normalized.selection.selectable
       ? undefined
       : normalized.selection.notSelectableReason,

@@ -5,6 +5,7 @@ import type {
   StoredRuleDraft
 } from '../../shared/rule-layer-types'
 import type { RuleConfig, RuleWithMeta } from '../../shared/types'
+import { isRuleActiveForScan } from '../../shared/rule-enforcement'
 import {
   loadCoreSafetyPolicy,
   loadDetectionHeuristics,
@@ -18,7 +19,9 @@ import {
   listRuleDrafts,
   loadUserRulePackState,
   saveUserRulePackState,
-  updateRuleDraftStatus
+  updateRuleDraftStatus,
+  createRuleDraftRecord,
+  saveRuleDraftRecord
 } from './rule-draft-store'
 import {
   canApproveRuleDraftPreview,
@@ -27,7 +30,7 @@ import {
 } from './rule-draft-preview'
 import { migrateLegacyUserRulesIfNeeded } from './rule-legacy-migration'
 import { getActiveScanSessionInfo, getScanSession } from '../scan/scan-session-store'
-import { RuleDraftValidationError } from './rule-draft-validator'
+import { RuleDraftValidationError, validateRuleDraftInput } from './rule-draft-validator'
 
 let migrationDone = false
 
@@ -85,7 +88,10 @@ export function getLayeredActiveRules(): RuleConfig[] {
   const packRules = listEnabledRulePacks().flatMap((pack) => pack.rules)
   const draftRules = getEnabledDraftRules()
   const byId = new Map<string, RuleConfig>()
-  for (const rule of packRules) byId.set(rule.id, rule)
+  for (const rule of packRules) {
+    if (!isRuleActiveForScan(rule)) continue
+    byId.set(rule.id, rule)
+  }
   for (const rule of draftRules) byId.set(rule.id, rule)
   return [...byId.values()]
 }
@@ -267,6 +273,52 @@ export function removeRuleDraft(draftId: string): boolean {
 
 export function importRuleDraftFromJson(input: unknown, rawJson?: string): StoredRuleDraft {
   return importRuleDraftJson(input, 'user-import', rawJson)
+}
+
+export function updateRuleDraftContent(
+  draftId: string,
+  patch: Record<string, unknown>
+): StoredRuleDraft {
+  const record = getRuleDraft(draftId)
+  if (!record) throw new RuleDraftValidationError('草稿不存在')
+  if (record.status === 'enabled') {
+    throw new RuleDraftValidationError('已启用规则须先停用再编辑')
+  }
+  const draft = validateRuleDraftInput({ ...record.draft, ...patch })
+  return saveRuleDraftRecord({
+    ...record,
+    draft,
+    status: 'validated',
+    preview: undefined,
+    sessionFingerprint: undefined,
+    sessionId: undefined,
+    updatedAt: new Date().toISOString()
+  })
+}
+
+export function copyBuiltInRuleAsDraft(rule: RuleConfig): StoredRuleDraft {
+  return createRuleDraftRecord(
+    {
+      schemaVersion: '1',
+      name: `${rule.name}（副本）`,
+      contentType: rule.contentType ?? 'app-cache',
+      basePlaceholders: rule.paths,
+      relativePatterns: rule.patterns,
+      subdirs: rule.subdirs,
+      globDirs: rule.globDirs,
+      maxDepth: rule.maxDepth,
+      maxAgeDays: rule.maxAgeDays,
+      reason: rule.reason ?? rule.description ?? rule.name,
+      impact: rule.impact,
+      rebuildable: rule.rebuildable,
+      requiresAppClosed: rule.requiresAppClosed,
+      suggestedRisk: rule.category,
+      source: 'user-import',
+      createdAt: new Date().toISOString()
+    },
+    'user-import',
+    { status: 'validated' }
+  )
 }
 
 export function resetRuleLayerUserState(): void {

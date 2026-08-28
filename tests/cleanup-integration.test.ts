@@ -4,9 +4,11 @@ import { tmpdir } from 'os'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { createScanSession } from '../src/main/scan/scan-session-store'
 import { validateCleanupActions } from '../src/main/cleanup/safety-validator'
-import { runCleanup } from '../src/main/cleanup/cleanup-service'
+import { runCleanup, prepareCleanupConfirmation, executeConfirmedCleanup } from '../src/main/cleanup/cleanup-service'
+import { buildSessionFingerprint } from '../src/shared/candidate-ref-index'
 import { measurePathDetailed } from '../src/main/scanner/measure-size'
 import type { ScanCandidate } from '../src/shared/types'
+import { normalizeCandidate } from '../src/shared/candidate-model'
 
 vi.mock('electron', () => ({
   shell: { trashItem: vi.fn(async () => undefined) }
@@ -28,16 +30,17 @@ const testRule = {
   subdirs: ['cache'],
   defaultChecked: true,
   enabled: true,
-  source: 'builtin' as const
+  cleanupMethod: 'trash' as const
 }
 
 vi.mock('../src/main/rules', () => ({
   getProtectedPaths: () => [],
+  getPathAccessPolicy: () => ({ denyRead: [], readOnlyHighRisk: [], denyDelete: [] }),
   getAllRulesWithMeta: () => [testRule]
 }))
 
 function makeDirCandidate(id: string, path: string): ScanCandidate {
-  return {
+  return normalizeCandidate({
     id,
     ruleId: 'test-cache',
     ruleName: '测试缓存',
@@ -53,8 +56,20 @@ function makeDirCandidate(id: string, path: string): ScanCandidate {
     deletable: true,
     autoSelect: true,
     source: 'rule',
-    ruleSource: 'builtin'
-  }
+    ruleSource: 'builtin',
+    discoverySources: ['rule'],
+    evidence: [],
+    judgment: {
+      status: 'suggested',
+      source: 'legacy-rule',
+      confidence: 'high',
+      basis: ['规则命中'],
+      judgmentOrigin: 'local-rule'
+    },
+    executionSafety: 'rule-eligible',
+    selection: { selectable: true },
+    suggestedAction: 'recycle'
+  })
 }
 
 describe('cleanup integration', () => {
@@ -73,17 +88,21 @@ describe('cleanup integration', () => {
     expect(result.skipped).toBe(0)
   })
 
-  it('rejects invalid candidate id with skipped count', async () => {
+  it('rejects invalid candidate id at prepare time', async () => {
     const session = createScanSession('C:', 'quick', 'v1', [makeDirCandidate('c1', cacheDir)])
-    const result = await runCleanup({
+    const fingerprint = buildSessionFingerprint(session.sessionId, session.createdAt, session.revision)
+    const preview = prepareCleanupConfirmation({
       sessionId: session.sessionId,
+      fingerprint,
       candidateIds: ['c1', 'missing-id', 'c1']
     })
 
+    expect(preview.itemCount).toBe(1)
+    expect(preview.rejectedCount).toBeGreaterThanOrEqual(2)
+
+    const result = await executeConfirmedCleanup(preview.confirmationId)
     expect(result.moved).toBe(1)
-    expect(result.skipped).toBeGreaterThanOrEqual(2)
-    expect(result.rejected.some((r) => r.reason.includes('不属于'))).toBe(true)
-    expect(result.rejected.some((r) => r.reason.includes('重复'))).toBe(true)
+    expect(result.skipped).toBe(0)
   })
 })
 

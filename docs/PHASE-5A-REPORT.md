@@ -82,4 +82,4 @@ npm run build     # pass
 git diff --check  # pass (CRLF warnings only)
 ```
 
-**未 push。阶段 5 整体仍为进行中（5B 未开始）。**
+**未 push。阶段 5B 已完成；阶段 5 整体已完成。**

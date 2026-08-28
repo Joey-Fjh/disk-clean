@@ -101,7 +101,7 @@ describe('candidate judgment matrix', () => {
       true
     )
     expect(merged.judgmentOrigin).toBe('protected-policy')
-    expect(merged.status).toBe('keep')
+    expect(merged.status).toBe('uncertain')
   })
 
   it('falls back to local judgment when agent review is absent', () => {

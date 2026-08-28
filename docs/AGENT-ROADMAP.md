@@ -4,11 +4,11 @@
 
 > **禁止**：一次 PR / 一次迭代跨多个阶段交付。
 
-> **当前进度**：阶段 3、阶段 4、阶段 4.1、**阶段 5A 已完成**；阶段 5 **进行中（5B 未开始）**；阶段 6 **未开始**
+> **当前进度**：阶段 3、**阶段 3.1（已完成）**、阶段 4、阶段 4.1、**阶段 4.2**、**阶段 5（已完成，含 5A / 5B）**、**阶段 6（已完成）**
 
 > **协作流程**：每阶段由产品审核 → 提供下一阶段 Prompt → 编码 Agent 仅实现该阶段 → 交付报告复审；不得跨阶段实现。
 
-> **最后更新**：2026-08-27
+> **最后更新**：2026-08-28
 阶段总览：
 
 | 阶段 | 名称 | 状态 |
@@ -17,10 +17,12 @@
 | 1 | 合并扫描与空间分析 | 已完成 |
 | 2 | 统一 Candidate 和结果流程 | 已完成 |
 | 3 | 模型 Provider 与安全凭证 | 已完成 |
+| 3.1 | 多模型配置管理 | 已完成 |
 | 4 | 单轮智能分析 | 已完成 |
 | 4.1 | 规则分层与扩展规则闭环 | 已完成 |
-| 5 | 多轮只读 Agent 调查 | 进行中（5A 已完成，5B 未开始） |
-| 6 | 清理计划与执行闭环 | 未开始 |
+| 4.2 | 统一清理模型、内置规则审计与规则中心 UX | 已完成 |
+| 5 | 多轮只读 Agent 调查 | 已完成（5A + 5B） |
+| 6 | 清理计划与执行闭环 | 已完成 |
 | 7 | 用户经验、性能和整体质量 | 未开始 |
 
 ---
@@ -240,6 +242,33 @@
 
 ---
 
+## 阶段 3.1：多模型配置管理
+
+> **实现状态（2026-08-27）**：**进行中，待代码复审**。详见 [PHASE-3.1-REPORT.md](./PHASE-3.1-REPORT.md)。
+
+### 目标
+
+在阶段 3 单配置基础上，支持保存多份命名模型配置，用户选择当前启用配置；每份 Profile 独立 Provider、URL、模型与 Key。
+
+### 包含范围
+
+- `provider-config.json` schema v2 与旧配置幂等迁移
+- Profile CRUD、active 切换、per-Profile 连接/能力测试
+- 设置页「已保存的配置」+「添加/编辑配置」UX
+- Agent / 规则草稿 Agent 使用 active Profile
+
+### 不包含范围
+
+- Key 轮换、OAuth、自动 fallback、远程 Provider 市场
+- 阶段 4.2 / 5B / 6 范围
+
+### 完成标准
+
+- 397 项自动测试通过；typecheck / build 通过
+- 迁移、Key 隔离、IPC 契约、Agent 快照行为有测试覆盖
+
+---
+
 ## 阶段 4：单轮智能分析
 
 ### 目标
@@ -333,9 +362,42 @@
 
 ---
 
+## 阶段 4.2：统一清理模型、内置规则审计与规则中心 UX
+
+### 目标
+
+将 Disk Clean 封装为**一次完整电脑清理任务**；审计并修正 27 条内置规则；重新定义结果分类与高风险分析/操作边界；首页内联规则预览/启用；规则中心元数据展示；为 5B 准备 Agent 候选输入契约。
+
+> **实现状态（2026-08-27）**：**已完成**（自动测试通过，待截图验收）。详见 [PHASE-4.2-REPORT.md](./PHASE-4.2-REPORT.md)、[CLEANUP-TASK-MODEL.md](./CLEANUP-TASK-MODEL.md)、[BUILTIN-RULE-AUDIT.md](./BUILTIN-RULE-AUDIT.md)。
+
+### 包含范围
+
+- 统一 `CleanupTaskPhase`（scanning → organizing → analyzing → planning → completed/failed/cancelled）
+- 5+2 结果展示分类与 `CleanupActionKind` 动作模型
+- protected 路径 → **空间占用**（非「不建议」）；限制操作不限制只读分析
+- 内置规则逐条审计；`app-logs` 禁用；浏览器 glob 收窄；Temp `maxAgeDays: 7`；developer/agent 默认不勾选
+- 规则元数据字段与规则中心展开展示
+- 首页规则预览 → 启用 → 重扫闭环（无需切换设置页）
+- `agent-candidate-prep.ts` 5B 输入契约
+
+### 不包含范围
+
+- ~~阶段 3.1 多 Provider 配置~~（见 [PHASE-3.1-REPORT.md](./PHASE-3.1-REPORT.md)，独立于 4.2 交付）
+- 阶段 5B 多轮模型编排与时间线 UI
+- 阶段 6 Validator 会话授权迁移
+- Shell 执行、远程规则市场
+
+### 完成标准
+
+- **359** 项自动测试通过；typecheck / build 通过
+- 审计表与修正清单见 BUILTIN-RULE-AUDIT
+- 人工 UI 截图验收（见 PHASE-4.2-REPORT）
+
+---
+
 ## 阶段 5：多轮只读 Agent 调查
 
-> **实现状态（2026-08-27）**：**5A 已完成**（代码与安全复审通过）。基础设施见 [PHASE-5A-REPORT.md](./PHASE-5A-REPORT.md)、[INVESTIGATION-TOOLS.md](./INVESTIGATION-TOOLS.md)。**5B**（多轮编排 + 时间线 UI）**未开始**。
+> **实现状态（2026-08-27）**：**已完成**（5A + 5B）。详见 [PHASE-5A-REPORT.md](./PHASE-5A-REPORT.md)、[PHASE-5B-REPORT.md](./PHASE-5B-REPORT.md)、[INVESTIGATION-ORCHESTRATION.md](./INVESTIGATION-ORCHESTRATION.md)。
 
 ### 5A 已完成
 
@@ -345,12 +407,14 @@
 - 资源预算与 fingerprint 缓存
 - 最小 IPC 与 UI 状态契约
 
-### 5B 待完成
+### 5B 已完成
 
-- 多轮 `chatCompletion` 编排
-- 调查时间线 UI
-- 单轮不足时自动触发调查
-- 端到端验收
+- 多轮 `chatCompletion` 编排（`investigation-orchestrator.ts`）
+- canonical `candidateRef` 统一索引
+- 模型回合 Schema（`investigate` / `final` / legacy / native tool_calls）
+- 调查时间线 UI + `agent:investigation-timeline` 事件
+- 统一 `runAgentAnalysis()` 入口；自动触发只读调查
+- 取消 / 重试 / Profile 快照 / 工具缓存复用
 
 ### 目标
 
@@ -397,6 +461,8 @@
 ---
 
 ## 阶段 6：清理计划与执行闭环
+
+> **实现状态（2026-08-28）**：**已完成**。代码与安全复审通过，无 P0/P1 阻断项。详见 [PHASE-6-REPORT.md](./PHASE-6-REPORT.md)。
 
 ### 目标
 
@@ -445,9 +511,9 @@
 
 ### 进入阶段 7 的条件
 
-- 生产级清理闭环无 P0 安全问题。
-- Validator 迁移评审通过。
-- 产品与研发同意进入体验与经验库阶段。
+- ✅ 生产级清理闭环无 P0 安全问题（2026-08-28 复审通过）
+- ✅ Validator 迁移评审通过
+- ⏳ 产品与研发同意进入体验与经验库阶段（**待确认阶段 7 范围**）
 ---
 
 ## 阶段 7：用户经验、性能和整体质量

@@ -1,23 +1,44 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import type { Category, ScanItem } from '../src/shared/types'
-import { CATEGORY_ORDER } from '../src/shared/types'
+import type { ScanItem } from '../src/shared/types'
+import { normalizeCandidate } from '../src/shared/candidate-model'
+import {
+  CLEANUP_DISPLAY_CATEGORY_ORDER,
+  type CleanupDisplayCategory
+} from '../src/shared/cleanup-display-category'
 import { ResultCategoryViewState } from '../src/renderer/result-category-state'
 import { preservePanelScrollTop } from '../src/renderer/panel-scroll'
 
-function item(id: string, category: Category): ScanItem {
-  return {
+function item(id: string, category: CleanupDisplayCategory): ScanItem {
+  const legacyCategory =
+    category === 'recommended-clean' ? 'safe' : category === 'caution-clean' ? 'recommended' : 'dangerous'
+  return normalizeCandidate({
     id,
-    category,
+    ruleId: 'rule',
     ruleName: 'rule',
+    category: legacyCategory,
     name: id,
     path: `C:\\${id}`,
     size: 100,
     drive: 'C:',
     contentType: 'system-temp',
     reason: '',
-    impact: ''
-  }
+    impact: '',
+    deletable: false,
+    autoSelect: false,
+    source: 'rule',
+    discoverySources: ['rule'],
+    evidence: [],
+    judgment: {
+      status: category === 'recommended-clean' ? 'suggested' : 'caution',
+      source: 'legacy-rule',
+      confidence: 'high',
+      basis: [],
+      judgmentOrigin: 'local-rule'
+    },
+    selection: { selectable: false },
+    suggestedAction: 'none'
+  })
 }
 
 function renderCategoryTabs(items: ScanItem[], state: ResultCategoryViewState): HTMLElement {
@@ -31,7 +52,7 @@ function renderCategoryTabs(items: ScanItem[], state: ResultCategoryViewState): 
   const panels = document.createElement('div')
   panels.className = 'category-panels'
 
-  for (const category of CATEGORY_ORDER) {
+  for (const category of CLEANUP_DISPLAY_CATEGORY_ORDER) {
     const tab = document.createElement('button')
     tab.className = `category-tab${category === active ? ' active' : ''}`
     tab.dataset.category = category
@@ -47,27 +68,30 @@ function renderCategoryTabs(items: ScanItem[], state: ResultCategoryViewState): 
   return root
 }
 
-function getActiveCategory(root: HTMLElement): Category | null {
+function getActiveCategory(root: HTMLElement): CleanupDisplayCategory | null {
   const tab = root.querySelector<HTMLButtonElement>('.category-tab.active')
-  return (tab?.dataset.category as Category | undefined) ?? null
+  return (tab?.dataset.category as CleanupDisplayCategory | undefined) ?? null
 }
 
 describe('result category DOM render', () => {
   it('keeps user-selected caution tab after incremental re-render', () => {
     const state = new ResultCategoryViewState()
-    state.select('recommended')
+    state.select('caution-clean')
 
-    const first = renderCategoryTabs([item('a', 'safe')], state)
-    expect(getActiveCategory(first)).toBe('recommended')
+    const first = renderCategoryTabs([item('a', 'recommended-clean')], state)
+    expect(getActiveCategory(first)).toBe('caution-clean')
 
-    const second = renderCategoryTabs([item('a', 'safe'), item('b', 'recommended')], state)
-    expect(getActiveCategory(second)).toBe('recommended')
+    const second = renderCategoryTabs(
+      [item('a', 'recommended-clean'), item('b', 'caution-clean')],
+      state
+    )
+    expect(getActiveCategory(second)).toBe('caution-clean')
   })
 
   it('defaults to first category with items when user has not chosen a tab', () => {
     const state = new ResultCategoryViewState()
-    const root = renderCategoryTabs([item('a', 'recommended')], state)
-    expect(getActiveCategory(root)).toBe('recommended')
+    const root = renderCategoryTabs([item('a', 'caution-clean')], state)
+    expect(getActiveCategory(root)).toBe('caution-clean')
   })
 
   it('preserves panel scrollTop across category re-render', () => {
@@ -80,13 +104,13 @@ describe('result category DOM render', () => {
     panel.scrollTop = 160
 
     const state = new ResultCategoryViewState()
-    state.select('dangerous')
+    state.select('space-occupancy')
 
     preservePanelScrollTop(panel, () => {
       panel.querySelector('#categories')?.remove()
       const mount = document.createElement('div')
       mount.id = 'categories'
-      mount.appendChild(renderCategoryTabs([item('x', 'dangerous')], state))
+      mount.appendChild(renderCategoryTabs([item('x', 'space-occupancy')], state))
       panel.insertBefore(mount, panel.firstChild)
     })
 

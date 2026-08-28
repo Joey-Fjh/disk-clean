@@ -23,6 +23,7 @@ export interface ChatCompletionOptions {
 export interface ChatCompletionResult {
   content: string
   latencyMs: number
+  toolCalls?: Array<{ function?: { name?: string; arguments?: string } }>
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
@@ -143,16 +144,24 @@ function mapHttpStatus(status: number, bodyText: string): ProviderError {
   return new ProviderError('INVALID_RESPONSE', '模型服务返回了无效响应')
 }
 
-function extractContent(payload: unknown): string {
+function extractMessage(payload: unknown): ChatCompletionResult {
   if (!payload || typeof payload !== 'object') {
     throw new ProviderError('INVALID_RESPONSE', '响应格式无效')
   }
-  const choices = (payload as { choices?: Array<{ message?: { content?: string } }> }).choices
-  const content = choices?.[0]?.message?.content
-  if (typeof content !== 'string' || !content.trim()) {
+  const message = (payload as { choices?: Array<{ message?: Record<string, unknown> }> }).choices?.[0]
+    ?.message
+  if (!message || typeof message !== 'object') {
+    throw new ProviderError('INVALID_RESPONSE', '响应格式无效')
+  }
+  const content = typeof message.content === 'string' ? message.content.trim() : ''
+  const rawToolCalls = message.tool_calls
+  const toolCalls = Array.isArray(rawToolCalls)
+    ? (rawToolCalls as Array<{ function?: { name?: string; arguments?: string } }>)
+    : undefined
+  if (!content && (!toolCalls || toolCalls.length === 0)) {
     throw new ProviderError('INVALID_RESPONSE', '响应中缺少文本内容')
   }
-  return content.trim()
+  return { content, toolCalls, latencyMs: 0 }
 }
 
 export async function chatCompletion(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
@@ -191,8 +200,10 @@ export async function chatCompletion(options: ChatCompletionOptions): Promise<Ch
       throw new ProviderError('INVALID_RESPONSE', '响应不是有效 JSON')
     }
 
+    const extracted = extractMessage(payload)
     return {
-      content: extractContent(payload),
+      content: extracted.content,
+      toolCalls: extracted.toolCalls,
       latencyMs: Date.now() - started
     }
   } catch (error) {

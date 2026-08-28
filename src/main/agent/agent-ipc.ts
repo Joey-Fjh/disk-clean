@@ -4,7 +4,7 @@ import type { AgentAnalyzeRequest } from '../../shared/agent-types'
 import { agentIpcFail, agentIpcOk } from '../../shared/agent-ipc'
 import { isTrustedMainWindowSender } from '../window-security'
 import { AgentError } from './agent-errors'
-import { runAgentAnalysis } from './agent-service'
+import { cancelAgentAnalysis, runAgentAnalysis } from './agent-service'
 
 function assertTrustedAgentSender(event: IpcMainInvokeEvent): void {
   if (!isTrustedMainWindowSender(event.sender)) {
@@ -37,7 +37,12 @@ export async function handleAgentAnalyze(event: IpcMainInvokeEvent, input: unkno
   try {
     assertTrustedAgentSender(event)
     const request = validateAnalyzeRequest(input)
-    return agentIpcOk(await runAgentAnalysis(request))
+    return agentIpcOk(
+      await runAgentAnalysis(request, {
+        webContents: event.sender,
+        isTrustedSender: () => isTrustedMainWindowSender(event.sender)
+      })
+    )
   } catch (error) {
     if (error instanceof AgentError) {
       return agentIpcFail(error.code, error.message)
@@ -46,6 +51,20 @@ export async function handleAgentAnalyze(event: IpcMainInvokeEvent, input: unkno
   }
 }
 
+export async function handleAgentCancel(event: IpcMainInvokeEvent) {
+  try {
+    assertTrustedAgentSender(event)
+    cancelAgentAnalysis()
+    return agentIpcOk(true)
+  } catch (error) {
+    if (error instanceof AgentError) {
+      return agentIpcFail(error.code, error.message)
+    }
+    return agentIpcFail('INTERNAL_ERROR', '取消失败')
+  }
+}
+
 export function registerAgentIpc(): void {
   ipcMain.handle('agent:analyze', (event, input: unknown) => handleAgentAnalyze(event, input))
+  ipcMain.handle('agent:cancel-analysis', (event) => handleAgentCancel(event))
 }

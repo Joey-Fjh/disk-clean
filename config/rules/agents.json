@@ -8,11 +8,15 @@
       "paths": ["%APPDATA%\\Cursor"],
       "globDirs": ["Cache", "Code Cache", "GPUCache", "CachedData", "logs", "Crashpad"],
       "maxDepth": 2,
-      "defaultChecked": true,
+      "defaultChecked": false,
       "reason": "Cursor 编辑器缓存与日志",
-      "impact": "不影响用户配置与扩展，首次启动可能稍慢",
+      "impact": "不影响用户配置、扩展、会话与 SQLite 状态",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "reviewStatus": "conservative",
+      "exclusions": ["User", "Local Storage", "Session Storage", "Cookies", "Network"],
+      "notes": "不触及 auth、conversation、settings、plugins"
     },
     {
       "id": "claude-desktop-cache",
@@ -22,11 +26,15 @@
       "paths": ["%APPDATA%\\Claude"],
       "globDirs": ["Cache", "Code Cache", "GPUCache", "logs", "Crashpad"],
       "maxDepth": 2,
-      "defaultChecked": true,
+      "defaultChecked": false,
       "reason": "Claude 客户端缓存与日志",
       "impact": "不影响账号与对话记录",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "reviewStatus": "conservative",
+      "exclusions": ["Local Storage", "Session Storage", "Cookies"],
+      "notes": "不触及认证与会话数据"
     },
     {
       "id": "codex-cache",
@@ -36,11 +44,14 @@
       "paths": ["%LOCALAPPDATA%\\codex", "%APPDATA%\\Codex"],
       "globDirs": ["Cache", "cache", "logs", "GPUCache"],
       "maxDepth": 2,
-      "defaultChecked": true,
+      "defaultChecked": false,
       "reason": "Codex 客户端缓存与日志",
       "impact": "不影响账号数据",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "requiresAppClosed": true,
+      "reviewStatus": "conservative",
+      "notes": "不触及认证、会话与 SQLite 状态"
     }
   ]
 }

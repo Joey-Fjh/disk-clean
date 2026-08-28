@@ -7,6 +7,7 @@ import type {
 } from '../shared/rule-layer-types'
 import type { RuleConfig } from '../shared/types'
 import { CANDIDATE_TAB_LABELS, CONTENT_TYPE_LABELS } from '../shared/types'
+import { CLEANUP_DISPLAY_CATEGORY_LABELS } from '../shared/cleanup-display-category'
 import { formatBytes } from '../shared/format-bytes'
 
 const DRAFT_USER_STATUS_LABELS: Record<string, string> = {
@@ -256,6 +257,10 @@ function renderRulePackRules(rules: RuleConfig[]): HTMLElement {
       rule.impact ? `影响说明：${rule.impact}` : '',
       `允许清理：${rule.deletable === false ? '否' : '是'}`,
       `可重新生成：${rule.rebuildable === true ? '是' : '否'}`,
+      rule.source ? `来源：${rule.source}` : '',
+      rule.testedVersions?.length ? `适用版本：${rule.testedVersions.join(', ')}` : '',
+      rule.requiresAppClosed ? '需要关闭相关软件' : '',
+      rule.reviewStatus ? `审核状态：${rule.reviewStatus}` : '',
       `范围：${formatRuleScopeSummary(rule)}`
     ].filter(Boolean)
 
@@ -267,10 +272,147 @@ function renderRulePackRules(rules: RuleConfig[]): HTMLElement {
       card.appendChild(row)
     }
 
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'btn btn-link'
+    copyBtn.type = 'button'
+    copyBtn.textContent = '复制为我的规则'
+    copyBtn.addEventListener('click', async () => {
+      await window.diskClean.copyBuiltInRuleAsDraft(rule.id)
+      await loadRuleKnowledgeSettings()
+    })
+    card.appendChild(copyBtn)
+
     list.appendChild(card)
   }
 
   return list
+}
+
+export function renderUserFacingRulePreview(
+  preview: RuleDraftPreviewResult,
+  draft: { name: string; reason: string }
+): HTMLElement {
+  const panel = document.createElement('div')
+  panel.className = 'rule-preview-summary'
+
+  const lines = [
+    `规则名称：${draft.name}`,
+    `会识别：${draft.reason}`,
+    `当前匹配：${preview.matchCount} 项 · ${formatBytes(preview.estimatedBytes)}`,
+    `风险等级：${preview.scope.suggestedRisk}`,
+    `可重新生成：${preview.scope.rebuildable === true ? '是' : '否'}`,
+    preview.protectedTargetCount > 0 ? `命中保护目录：${preview.protectedTargetCount} 个目标` : '未命中保护目录目标',
+    preview.approvable ? '可以启用' : `不可启用：${preview.blockReason ?? '未知原因'}`
+  ]
+
+  for (const line of lines) {
+    const row = document.createElement('div')
+    row.className = 'rule-item-meta'
+    setText(row, line)
+    panel.appendChild(row)
+  }
+
+  if (preview.samples.length > 0) {
+    const sampleTitle = document.createElement('div')
+    sampleTitle.className = 'rule-item-meta'
+    setText(sampleTitle, '匹配样本：')
+    panel.appendChild(sampleTitle)
+    for (const sample of preview.samples.slice(0, 5)) {
+      const row = document.createElement('div')
+      row.className = 'rule-item-meta'
+      setText(row, `· ${sample.pathSummary} (${formatBytes(sample.size)})`)
+      panel.appendChild(row)
+    }
+  }
+
+  return panel
+}
+
+function renderRuleDraftEditForm(
+  record: StoredRuleDraft,
+  onSaved: () => void
+): HTMLElement {
+  const form = document.createElement('form')
+  form.className = 'rule-draft-edit-form'
+
+  const fields: Array<{ key: string; label: string; value: string; multiline?: boolean }> = [
+    { key: 'name', label: '名称', value: record.draft.name },
+    { key: 'reason', label: '说明', value: record.draft.reason, multiline: true },
+    {
+      key: 'basePlaceholders',
+      label: '基础路径（每行一个占位符）',
+      value: record.draft.basePlaceholders.join('\n'),
+      multiline: true
+    },
+    {
+      key: 'globDirs',
+      label: '相对 glob（每行一个，可选）',
+      value: (record.draft.globDirs ?? []).join('\n'),
+      multiline: true
+    },
+    { key: 'suggestedRisk', label: '风险等级（safe/recommended/dangerous）', value: record.draft.suggestedRisk },
+    {
+      key: 'rebuildable',
+      label: '可重建（true/false）',
+      value: String(record.draft.rebuildable ?? false)
+    },
+    {
+      key: 'requiresAppClosed',
+      label: '需关闭软件（true/false）',
+      value: String(record.draft.requiresAppClosed ?? false)
+    },
+    { key: 'impact', label: '影响说明', value: record.draft.impact ?? '', multiline: true }
+  ]
+
+  for (const field of fields) {
+    const label = document.createElement('label')
+    label.className = 'rule-edit-field'
+    const title = document.createElement('span')
+    setText(title, field.label)
+    const input = field.multiline ? document.createElement('textarea') : document.createElement('input')
+    input.name = field.key
+    if (!field.multiline) (input as HTMLInputElement).type = 'text'
+    input.value = field.value
+    label.append(title, input)
+    form.appendChild(label)
+  }
+
+  const saveBtn = document.createElement('button')
+  saveBtn.type = 'submit'
+  saveBtn.className = 'btn btn-primary'
+  saveBtn.textContent = '保存并重新预览'
+  form.appendChild(saveBtn)
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const data = new FormData(form)
+    const baseLines = String(data.get('basePlaceholders') ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    const globLines = String(data.get('globDirs') ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    try {
+      await window.diskClean.updateRuleDraft(record.id, {
+        name: String(data.get('name') ?? ''),
+        reason: String(data.get('reason') ?? ''),
+        basePlaceholders: baseLines,
+        globDirs: globLines.length > 0 ? globLines : undefined,
+        suggestedRisk: String(data.get('suggestedRisk') ?? 'recommended'),
+        rebuildable: String(data.get('rebuildable') ?? 'false') === 'true',
+        requiresAppClosed: String(data.get('requiresAppClosed') ?? 'false') === 'true',
+        impact: String(data.get('impact') ?? '') || undefined
+      })
+      onSaved()
+    } catch (error) {
+      const status = document.getElementById('rule-drafts-status')
+      if (status) status.textContent = error instanceof Error ? error.message : '保存失败'
+    }
+  })
+
+  return form
 }
 
 function renderPreviewSummary(preview: RuleDraftPreviewResult, draft: StoredRuleDraft['draft']): HTMLElement {
@@ -423,6 +565,29 @@ function renderRuleDrafts(drafts: StoredRuleDraft[]): void {
       }
     })
     actions.appendChild(previewBtn)
+
+    if (record.status !== 'enabled') {
+      const editBtn = document.createElement('button')
+      editBtn.className = 'btn btn-secondary'
+      editBtn.type = 'button'
+      editBtn.textContent = '编辑'
+      const editHost = document.createElement('div')
+      editHost.className = 'rule-draft-edit-host'
+      editHost.hidden = true
+      editBtn.addEventListener('click', () => {
+        editHost.hidden = !editHost.hidden
+        if (!editHost.hidden && editHost.childElementCount === 0) {
+          editHost.appendChild(
+            renderRuleDraftEditForm(record, async () => {
+              if (status) status.textContent = '规则已更新，请重新预览后再启用。'
+              await loadRuleKnowledgeSettings()
+            })
+          )
+        }
+      })
+      actions.appendChild(editBtn)
+      main.appendChild(editHost)
+    }
 
     if (!preview) {
       const gotoScanBtn = document.createElement('button')

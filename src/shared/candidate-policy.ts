@@ -5,6 +5,7 @@ export function shouldAutoSelect(
     defaultChecked: boolean
     category: Category
     source?: 'builtin' | 'custom'
+    requiresAppClosed?: boolean
   },
   snapshotComplete = true
 ): boolean {
@@ -12,6 +13,7 @@ export function shouldAutoSelect(
     rule.defaultChecked === true &&
     rule.category === 'safe' &&
     rule.source !== 'custom' &&
+    rule.requiresAppClosed !== true &&
     snapshotComplete
   )
 }

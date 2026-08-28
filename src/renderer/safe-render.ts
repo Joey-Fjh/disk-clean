@@ -21,6 +21,7 @@ export interface ScanItemRenderInput {
   agentReviewSummary?: string
   safetyCheckSummary?: string
   impactSummary?: string
+  appClosedWarning?: string
   notSelectableReason?: string
   agentLikelyContent?: string
   agentReason?: string
@@ -92,6 +93,7 @@ export function createScanItemElement(input: ScanItemRenderInput): HTMLLIElement
   summaryBlock.className = 'item-judgment-summary'
   for (const line of [
     input.cleanupEligibility,
+    input.appClosedWarning,
     input.agentReviewSummary,
     input.safetyCheckSummary,
     input.impactSummary

@@ -23,7 +23,9 @@ const USER_MESSAGES: Record<ProviderErrorCode, string> = {
   SAFE_STORAGE_UNAVAILABLE: '系统安全存储不可用，无法保存 API Key',
   INVALID_INPUT: '提交的配置无效',
   KEY_REENTRY_REQUIRED: '服务地址已变更，请重新输入 API Key 后再保存',
-  IPC_UNAUTHORIZED: '未授权的 Provider 请求'
+  IPC_UNAUTHORIZED: '未授权的 Provider 请求',
+  PROFILE_NOT_FOUND: '未找到指定的模型配置',
+  PROFILE_LIMIT_REACHED: '已达到配置数量上限'
 }
 
 export function providerErrorMessage(code: ProviderErrorCode): string {

@@ -40,13 +40,14 @@
         <div class="panel-header">
           <div>
             <h2>磁盘清理</h2>
-            <p class="panel-desc">扫描磁盘空间、收集本地证据，并形成待判断的清理候选项</p>
+            <p class="panel-desc">一次扫描完成空间整理、本地规则与智能分析，形成统一清理建议</p>
           </div>
           <div class="header-actions">
             <select id="drive-select" class="drive-select" title="选择要扫描的磁盘">
               <option value="all">全部磁盘</option>
             </select>
             <button id="scan-btn" class="btn btn-primary">开始扫描</button>
+            <button id="retry-rescan-btn" class="btn btn-secondary" hidden>重新复核</button>
             <button id="clean-btn" class="btn btn-danger" disabled>清理选中项</button>
           </div>
         </div>
@@ -98,14 +99,29 @@
               <button id="export-writing-pack-btn" class="btn btn-primary" type="button" disabled hidden>
                 导出规则资料
               </button>
+              <button id="import-rule-draft-inline-btn" class="btn btn-secondary" type="button" disabled hidden>
+                导入规则 JSON
+              </button>
             </div>
             <p id="rule-draft-action-status" class="rule-draft-action-status" aria-live="polite"></p>
           </div>
 
+          <div id="rule-extension-step-preview" hidden>
+            <p class="rule-extension-desc">请确认规则作用、匹配样本与风险后再启用。</p>
+            <div id="rule-extension-preview-panel" class="rule-extension-preview-panel"></div>
+            <div class="rule-extension-actions">
+              <button type="button" class="btn btn-primary" id="rule-extension-enable-btn" disabled>保存为我的规则并启用</button>
+              <button type="button" class="btn btn-secondary" id="rule-extension-preview-back">返回</button>
+            </div>
+            <p id="rule-extension-preview-status" class="rule-draft-action-status" aria-live="polite"></p>
+          </div>
+
           <div id="rule-extension-step-complete" hidden>
             <p class="rule-extension-desc" id="rule-extension-complete-message"></p>
+            <div id="rule-extension-post-enable" class="rule-post-enable" hidden></div>
             <div class="rule-extension-actions">
-              <button type="button" class="btn btn-secondary" id="rule-extension-open-settings">前往扩展规则管理</button>
+              <button type="button" class="btn btn-primary" id="rule-extension-rescan-btn" hidden>立即重新扫描</button>
+              <button type="button" class="btn btn-secondary" id="rule-extension-later-btn" hidden>稍后</button>
               <button type="button" class="btn btn-link" id="rule-extension-back-results">返回清理结果</button>
             </div>
           </div>
@@ -116,8 +132,12 @@
             <p class="agent-analysis-headline" id="agent-analysis-headline"></p>
             <p class="agent-analysis-overview" id="agent-analysis-overview"></p>
             <p class="agent-analysis-meta" id="agent-analysis-meta"></p>
+            <div class="agent-investigation-timeline" id="agent-investigation-timeline" hidden>
+              <ul class="agent-investigation-timeline-list" id="agent-investigation-timeline-list"></ul>
+            </div>
           </div>
           <div class="agent-analysis-actions">
+            <button type="button" class="btn btn-secondary" id="agent-analysis-stop" hidden>停止智能分析</button>
             <button type="button" class="btn btn-secondary" id="agent-analysis-settings-link" hidden>前往设置</button>
             <button type="button" class="btn btn-secondary" id="agent-analysis-retry" hidden>重试分析</button>
           </div>
@@ -217,58 +237,58 @@
               <span class="settings-card-chevron" aria-hidden="true"></span>
             </button>
             <div class="settings-card-body" id="settings-card-provider-body">
-              <div class="settings-card-body-inner">
-                <div class="sub-tab-bar" role="tablist" aria-label="模型连接">
-                  <button type="button" class="sub-tab active" role="tab" data-subtab="config" data-provider-tab="config" aria-selected="true" aria-controls="provider-tab-config" id="provider-tab-config-btn">连接配置</button>
-                  <button type="button" class="sub-tab" role="tab" data-subtab="test" data-provider-tab="test" aria-selected="false" aria-controls="provider-tab-test" id="provider-tab-test-btn" tabindex="-1">连接测试</button>
-                </div>
-                <div class="sub-tab-panels">
-                  <div role="tabpanel" id="provider-tab-config" data-subtab-panel="config" aria-labelledby="provider-tab-config-btn">
-                    <div class="provider-form">
-                      <label class="provider-field">
-                        <span class="provider-label">Provider</span>
-                        <select id="provider-select" class="provider-input">
-                          <option value="openai">OpenAI</option>
-                          <option value="deepseek">DeepSeek</option>
-                          <option value="custom">Custom</option>
-                        </select>
-                      </label>
-                      <label class="provider-field">
-                        <span class="provider-label">协议</span>
-                        <input id="provider-protocol" class="provider-input" type="text" readonly value="OpenAI-compatible Chat Completions" />
-                      </label>
-                      <label class="provider-field">
-                        <span class="provider-label">Base URL</span>
-                        <input id="provider-base-url" class="provider-input" type="url" placeholder="https://api.openai.com/v1" />
-                      </label>
-                      <label class="provider-field">
-                        <span class="provider-label">模型名称</span>
-                        <input id="provider-model" class="provider-input" type="text" placeholder="gpt-4o-mini" />
-                      </label>
-                      <label class="provider-field">
-                        <span class="provider-label">API Key</span>
-                        <input id="provider-api-key" class="provider-input" type="password" placeholder="输入新 Key 以保存或替换" autocomplete="off" />
-                        <span id="provider-key-hint" class="provider-hint" hidden></span>
-                      </label>
-                      <div class="provider-actions">
-                        <button id="provider-save-btn" class="btn btn-secondary" type="button">保存配置</button>
-                        <button id="provider-delete-key-btn" class="btn btn-secondary" type="button">删除 Key</button>
-                      </div>
-                      <p id="provider-config-status" class="provider-status" aria-live="polite"></p>
+              <div class="settings-card-body-inner provider-settings-layout">
+                <section id="provider-list-section" class="provider-list-section">
+                  <div class="provider-section-header">
+                    <h3 class="provider-section-title">已保存的配置</h3>
+                    <button id="provider-add-profile-btn" class="btn btn-secondary btn-sm" type="button">添加模型配置</button>
+                  </div>
+                  <div id="provider-profile-list" class="provider-profile-list" aria-live="polite"></div>
+                  <p id="provider-config-status" class="provider-status" aria-live="polite"></p>
+                </section>
+
+                <section id="provider-form-section" class="provider-form-section" hidden>
+                  <div class="provider-section-header">
+                    <h3 id="provider-form-title" class="provider-section-title">添加配置</h3>
+                  </div>
+                  <div class="provider-form">
+                    <label class="provider-field">
+                      <span class="provider-label">配置名称</span>
+                      <input id="provider-name" class="provider-input" type="text" placeholder="例如：我的 DeepSeek" maxlength="64" />
+                    </label>
+                    <label class="provider-field">
+                      <span class="provider-label">Provider</span>
+                      <select id="provider-select" class="provider-input">
+                        <option value="openai">OpenAI</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </label>
+                    <label class="provider-field">
+                      <span class="provider-label">协议</span>
+                      <input id="provider-protocol" class="provider-input" type="text" readonly value="OpenAI-compatible Chat Completions" />
+                    </label>
+                    <label class="provider-field">
+                      <span class="provider-label">Base URL</span>
+                      <input id="provider-base-url" class="provider-input" type="url" placeholder="https://api.openai.com/v1" />
+                    </label>
+                    <label class="provider-field">
+                      <span class="provider-label">模型名称</span>
+                      <input id="provider-model" class="provider-input" type="text" placeholder="gpt-4o-mini" />
+                    </label>
+                    <label class="provider-field">
+                      <span class="provider-label">API Key</span>
+                      <input id="provider-api-key" class="provider-input" type="password" placeholder="留空表示保留当前 Key" autocomplete="off" />
+                      <span id="provider-key-hint" class="provider-hint" hidden></span>
+                    </label>
+                    <p id="provider-key-reentry-hint" class="provider-hint provider-dirty-hint" hidden>服务地址 Origin 已变更，请重新输入 API Key 后保存</p>
+                    <p id="provider-dirty-hint" class="provider-hint provider-dirty-hint" hidden>配置有未保存修改</p>
+                    <div class="provider-actions">
+                      <button id="provider-save-btn" class="btn btn-primary" type="button">保存配置</button>
+                      <button id="provider-cancel-edit-btn" class="btn btn-secondary" type="button">取消</button>
                     </div>
                   </div>
-                  <div role="tabpanel" id="provider-tab-test" data-subtab-panel="test" aria-labelledby="provider-tab-test-btn" hidden>
-                    <div class="provider-test-panel">
-                      <dl class="provider-saved-summary" id="provider-saved-summary"></dl>
-                      <p id="provider-dirty-hint" class="provider-hint provider-dirty-hint" hidden>配置有未保存修改，请先保存</p>
-                      <div class="provider-actions">
-                        <button id="provider-test-connection-btn" class="btn btn-secondary" type="button">连接测试</button>
-                        <button id="provider-test-capability-btn" class="btn btn-secondary" type="button">模型能力测试</button>
-                      </div>
-                      <p id="provider-test-status" class="provider-status" aria-live="polite"></p>
-                    </div>
-                  </div>
-                </div>
+                </section>
               </div>
             </div>
           </section>

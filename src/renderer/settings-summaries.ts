@@ -1,4 +1,5 @@
-import type { ProviderConfigPublic } from '../shared/provider-types'
+import type { ProviderProfilePublic, ProviderProfilesPublicState } from '../shared/provider-types'
+import { getActiveProfile } from '../shared/provider-profile-utils'
 import type { RuleWithMeta } from '../shared/types'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -13,10 +14,10 @@ export function formatThemeSummary(mode: ThemeMode): string {
   return THEME_SUMMARY_LABELS[mode]
 }
 
-export function formatProviderSummary(config: ProviderConfigPublic | null): string {
-  if (!config?.hasKey) return '未配置'
-  const lastFour = config.keyLastFour ?? '????'
-  return `已配置 · ****${lastFour}`
+export function formatProviderSummary(state: ProviderProfilesPublicState | null): string {
+  const active = getActiveProfile(state)
+  if (!active?.hasKey) return '未配置'
+  return `${active.name} · ****${active.keyLastFour ?? '????'}`
 }
 
 export function formatRulesSummary(rules: RuleWithMeta[]): string {

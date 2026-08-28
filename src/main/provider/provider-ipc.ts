@@ -1,16 +1,22 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { ipcMain } from 'electron'
-import type { SaveProviderConfigInput } from '../../shared/provider-types'
+import type {
+  CreateProviderProfileInput,
+  ProviderId,
+  UpdateProviderProfileInput
+} from '../../shared/provider-types'
 import { PROVIDER_INPUT_LIMITS } from '../../shared/provider-limits'
 import { providerIpcFail, providerIpcOk } from '../../shared/provider-ipc'
 import { isTrustedMainWindowSender } from '../window-security'
 import { ProviderError } from './provider-errors'
 import {
-  deleteProviderApiKey,
-  getProviderConfig,
-  saveProviderConfig,
+  createProviderProfile,
+  deleteProviderProfile,
+  listProviderProfiles,
+  setActiveProviderProfile,
   testProviderCapability,
-  testProviderConnection
+  testProviderConnection,
+  updateProviderProfile
 } from './provider-service'
 
 function assertTrustedProviderSender(event: IpcMainInvokeEvent): void {
@@ -19,11 +25,22 @@ function assertTrustedProviderSender(event: IpcMainInvokeEvent): void {
   }
 }
 
-function validateSaveInput(input: unknown): SaveProviderConfigInput {
-  if (!input || typeof input !== 'object') {
-    throw new ProviderError('INVALID_INPUT', '配置无效')
+function validateProfileIdInput(profileId: unknown): string {
+  if (typeof profileId !== 'string' || !profileId.trim()) {
+    throw new ProviderError('INVALID_INPUT', '配置 ID 无效')
   }
-  const payload = input as Record<string, unknown>
+  if (profileId.length > PROVIDER_INPUT_LIMITS.PROFILE_ID_MAX_LENGTH) {
+    throw new ProviderError('INVALID_INPUT', '配置 ID 无效')
+  }
+  return profileId.trim()
+}
+
+function validateProviderFields(payload: Record<string, unknown>): {
+  providerId: ProviderId
+  baseUrl: string
+  model: string
+  apiKey?: string
+} {
   const providerId = payload.providerId
   const baseUrl = payload.baseUrl
   const model = payload.model
@@ -59,10 +76,50 @@ function validateSaveInput(input: unknown): SaveProviderConfigInput {
   }
 }
 
-export function handleProviderGetConfig(event: IpcMainInvokeEvent) {
+function validateCreateInput(input: unknown): CreateProviderProfileInput {
+  if (!input || typeof input !== 'object') {
+    throw new ProviderError('INVALID_INPUT', '配置无效')
+  }
+  const payload = input as Record<string, unknown>
+  const name = payload.name
+  if (typeof name !== 'string') {
+    throw new ProviderError('INVALID_INPUT', '配置名称无效')
+  }
+  if (name.trim().length === 0 || name.length > PROVIDER_INPUT_LIMITS.PROFILE_NAME_MAX_LENGTH) {
+    throw new ProviderError('INVALID_INPUT', '配置名称无效')
+  }
+  const fields = validateProviderFields(payload)
+  return { name, ...fields }
+}
+
+function validateUpdateInput(input: unknown): UpdateProviderProfileInput {
+  if (!input || typeof input !== 'object') {
+    throw new ProviderError('INVALID_INPUT', '配置无效')
+  }
+  const payload = input as Record<string, unknown>
+  const profileId = validateProfileIdInput(payload.profileId)
+  const name = payload.name
+  if (typeof name !== 'string') {
+    throw new ProviderError('INVALID_INPUT', '配置名称无效')
+  }
+  if (name.trim().length === 0 || name.length > PROVIDER_INPUT_LIMITS.PROFILE_NAME_MAX_LENGTH) {
+    throw new ProviderError('INVALID_INPUT', '配置名称无效')
+  }
+  const fields = validateProviderFields(payload)
+  return { profileId, name, ...fields }
+}
+
+function validateProfileIdPayload(input: unknown): string {
+  if (!input || typeof input !== 'object') {
+    throw new ProviderError('INVALID_INPUT', '配置 ID 无效')
+  }
+  return validateProfileIdInput((input as Record<string, unknown>).profileId)
+}
+
+export function handleProviderListProfiles(event: IpcMainInvokeEvent) {
   try {
     assertTrustedProviderSender(event)
-    return providerIpcOk(getProviderConfig())
+    return providerIpcOk(listProviderProfiles())
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerIpcFail(error.code, error.message)
@@ -71,10 +128,10 @@ export function handleProviderGetConfig(event: IpcMainInvokeEvent) {
   }
 }
 
-export function handleProviderSaveConfig(event: IpcMainInvokeEvent, input: unknown) {
+export function handleProviderCreateProfile(event: IpcMainInvokeEvent, input: unknown) {
   try {
     assertTrustedProviderSender(event)
-    return providerIpcOk(saveProviderConfig(validateSaveInput(input)))
+    return providerIpcOk(createProviderProfile(validateCreateInput(input)))
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerIpcFail(error.code, error.message)
@@ -83,10 +140,10 @@ export function handleProviderSaveConfig(event: IpcMainInvokeEvent, input: unkno
   }
 }
 
-export function handleProviderDeleteApiKey(event: IpcMainInvokeEvent) {
+export function handleProviderUpdateProfile(event: IpcMainInvokeEvent, input: unknown) {
   try {
     assertTrustedProviderSender(event)
-    return providerIpcOk(deleteProviderApiKey())
+    return providerIpcOk(updateProviderProfile(validateUpdateInput(input)))
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerIpcFail(error.code, error.message)
@@ -95,10 +152,10 @@ export function handleProviderDeleteApiKey(event: IpcMainInvokeEvent) {
   }
 }
 
-export async function handleProviderTestConnection(event: IpcMainInvokeEvent) {
+export function handleProviderDeleteProfile(event: IpcMainInvokeEvent, input: unknown) {
   try {
     assertTrustedProviderSender(event)
-    return providerIpcOk(await testProviderConnection())
+    return providerIpcOk(deleteProviderProfile(validateProfileIdPayload(input)))
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerIpcFail(error.code, error.message)
@@ -107,10 +164,34 @@ export async function handleProviderTestConnection(event: IpcMainInvokeEvent) {
   }
 }
 
-export async function handleProviderTestCapability(event: IpcMainInvokeEvent) {
+export function handleProviderSetActiveProfile(event: IpcMainInvokeEvent, input: unknown) {
   try {
     assertTrustedProviderSender(event)
-    return providerIpcOk(await testProviderCapability())
+    return providerIpcOk(setActiveProviderProfile(validateProfileIdPayload(input)))
+  } catch (error) {
+    if (error instanceof ProviderError) {
+      return providerIpcFail(error.code, error.message)
+    }
+    return providerIpcFail('INVALID_INPUT', '操作失败')
+  }
+}
+
+export async function handleProviderTestConnection(event: IpcMainInvokeEvent, input: unknown) {
+  try {
+    assertTrustedProviderSender(event)
+    return providerIpcOk(await testProviderConnection(validateProfileIdPayload(input)))
+  } catch (error) {
+    if (error instanceof ProviderError) {
+      return providerIpcFail(error.code, error.message)
+    }
+    return providerIpcFail('INVALID_INPUT', '操作失败')
+  }
+}
+
+export async function handleProviderTestCapability(event: IpcMainInvokeEvent, input: unknown) {
+  try {
+    assertTrustedProviderSender(event)
+    return providerIpcOk(await testProviderCapability(validateProfileIdPayload(input)))
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerIpcFail(error.code, error.message)
@@ -120,9 +201,23 @@ export async function handleProviderTestCapability(event: IpcMainInvokeEvent) {
 }
 
 export function registerProviderIpc(): void {
-  ipcMain.handle('provider:getConfig', (event) => handleProviderGetConfig(event))
-  ipcMain.handle('provider:saveConfig', (event, input: unknown) => handleProviderSaveConfig(event, input))
-  ipcMain.handle('provider:deleteApiKey', (event) => handleProviderDeleteApiKey(event))
-  ipcMain.handle('provider:testConnection', (event) => handleProviderTestConnection(event))
-  ipcMain.handle('provider:testCapability', (event) => handleProviderTestCapability(event))
+  ipcMain.handle('provider:listProfiles', (event) => handleProviderListProfiles(event))
+  ipcMain.handle('provider:createProfile', (event, input: unknown) =>
+    handleProviderCreateProfile(event, input)
+  )
+  ipcMain.handle('provider:updateProfile', (event, input: unknown) =>
+    handleProviderUpdateProfile(event, input)
+  )
+  ipcMain.handle('provider:deleteProfile', (event, input: unknown) =>
+    handleProviderDeleteProfile(event, input)
+  )
+  ipcMain.handle('provider:setActiveProfile', (event, input: unknown) =>
+    handleProviderSetActiveProfile(event, input)
+  )
+  ipcMain.handle('provider:testConnection', (event, input: unknown) =>
+    handleProviderTestConnection(event, input)
+  )
+  ipcMain.handle('provider:testCapability', (event, input: unknown) =>
+    handleProviderTestCapability(event, input)
+  )
 }

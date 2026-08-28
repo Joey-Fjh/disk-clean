@@ -1,6 +1,11 @@
 import type { RuleConfig } from '../../shared/types'
 import { expandEnvVars } from '../../shared/path-utils'
 import {
+  parseCleanupMethod,
+  parseConfidence,
+  parseReviewStatus
+} from '../../shared/rule-enforcement'
+import {
   isAbsoluteWindowsPath,
   isObviousPathEscape,
   isOverlyBroadPath,
@@ -26,7 +31,18 @@ const ALLOWED_FIELDS = new Set([
   'rebuildable',
   'cleanupStrategy',
   'deletable',
-  'nativeManaged'
+  'nativeManaged',
+  'source',
+  'sourceUrl',
+  'testedPlatforms',
+  'testedVersions',
+  'lastVerifiedAt',
+  'requiresAppClosed',
+  'cleanupMethod',
+  'reviewStatus',
+  'confidence',
+  'exclusions',
+  'notes'
 ])
 
 const FORBIDDEN_FIELDS = new Set(['command', 'exec', 'script', 'shell', 'cmd', 'powershell', 'run'])
@@ -131,7 +147,18 @@ export function validateRuleInput(rule: unknown, options: RuleValidationOptions 
     return null
   }
 
+  const cleanupMethod = parseCleanupMethod(input.cleanupMethod)
+  if (input.cleanupMethod !== undefined && cleanupMethod === undefined) return null
+  const reviewStatus = parseReviewStatus(input.reviewStatus)
+  if (input.reviewStatus !== undefined && reviewStatus === undefined) return null
+  const confidence = parseConfidence(input.confidence)
+  if (input.confidence !== undefined && confidence === undefined) return null
+
   if (category === 'safe' && !hasPreciseScope) return null
+
+  let deletable = input.deletable === false ? false : undefined
+  if (cleanupMethod && cleanupMethod !== 'trash') deletable = false
+  if (reviewStatus === 'disabled') deletable = false
 
   return {
     id: id.trim(),
@@ -150,8 +177,19 @@ export function validateRuleInput(rule: unknown, options: RuleValidationOptions 
     impact: asOptionalString(input.impact),
     rebuildable: input.rebuildable === true ? true : input.rebuildable === false ? false : undefined,
     cleanupStrategy: input.cleanupStrategy as RuleConfig['cleanupStrategy'],
-    deletable: input.deletable === false ? false : undefined,
-    nativeManaged: input.nativeManaged === true ? true : undefined
+    deletable,
+    nativeManaged: input.nativeManaged === true ? true : undefined,
+    source: asOptionalString(input.source),
+    sourceUrl: asOptionalString(input.sourceUrl),
+    testedPlatforms: asStringArray(input.testedPlatforms),
+    testedVersions: asStringArray(input.testedVersions),
+    lastVerifiedAt: asOptionalString(input.lastVerifiedAt),
+    requiresAppClosed: input.requiresAppClosed === true ? true : undefined,
+    cleanupMethod,
+    reviewStatus,
+    confidence,
+    exclusions: asStringArray(input.exclusions),
+    notes: asOptionalString(input.notes)
   }
 }
 

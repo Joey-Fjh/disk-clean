@@ -1,6 +1,6 @@
-# 规则体系 V2（阶段 4.1）
+# 规则体系 V2（阶段 4.1 + 4.2）
 
-> 阶段 4.1 引入规则四层架构与 RuleDraft 草稿闭环。V1 说明见 [RULES-v1.md](./RULES-v1.md)（顶部已标注迁移关系）。
+> 阶段 4.1 引入规则四层架构与 RuleDraft 草稿闭环；阶段 4.2 完成内置规则逐条审计、元数据字段与加载约束。V1 说明见 [RULES-v1.md](./RULES-v1.md)（顶部已标注迁移关系）。审计表见 [BUILTIN-RULE-AUDIT.md](./BUILTIN-RULE-AUDIT.md)。
 
 ## 判断与授权（阶段 4.1 收尾）
 
@@ -64,8 +64,33 @@ Renderer 仅可发送 `{ sessionId, candidateIds }`，不得注入路径或 Key�
 - 官方规则包与用户已批准规则包继续作为 fallback。
 - 无 Key 时可导出「规则编写包」（脱敏摘要 + Schema + 禁止字段说明）。
 
+## 规则元数据（阶段 4.2）
+
+官方规则可携带以下**可选**字段（用户导入规则不得伪造 official 身份）：
+
+| 字段 | 用途 |
+|------|------|
+| `source` / `sourceUrl` | 路径依据（厂商文档或本地验证说明） |
+| `testedPlatforms` / `testedVersions` | 适用平台与版本 |
+| `lastVerifiedAt` | 最近审计日期 |
+| `requiresAppClosed` | 清理前是否应关闭相关应用 |
+| `cleanupMethod` | `trash` / `system-managed` / `uninstall` / `manual` |
+| `reviewStatus` | `verified` / `conservative` / **`disabled`**（disabled 不进入活动规则集） |
+| `confidence` | `high` / `medium` / `low` |
+| `exclusions` | 明确排除的子路径或数据类型 |
+| `notes` | 审计备注 |
+
+**4.2 审计变更摘要**：
+
+- `app-logs` → `reviewStatus: disabled`
+- 浏览器 `globDirs` 收窄；增加 `exclusions`
+- `user-temp` / `windows-temp` → `maxAgeDays: 7`
+- developer / agent 类 → `defaultChecked: false`，多数为 `conservative`
+- `getLayeredActiveRules()` 跳过 `reviewStatus === 'disabled'`
+
+规则中心 UI 展开官方包时展示上述元数据与路径范围摘要（只读；可复制为「我的规则」后编辑）。
+
 ## 未实现（本阶段刻意不做）
 
 - 在线规则市场、远程更新、签名服务
-- 阶段 5 多轮工具调用
-- 阶段 6 Validator 会话授权迁移
+- 阶段 7 用户经验库与在线规则市场

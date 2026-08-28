@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'path'
+import { basename, resolve } from 'path'
 import fg from 'fast-glob'
 import type { RuleConfig } from './types'
 import { expandEnvVars, isPathUnderRoot, normalizePath } from './path-utils'
@@ -108,24 +108,38 @@ export async function collectRuleTargets(rule: RuleConfig): Promise<string[]> {
   return [...new Set(targets)]
 }
 
-/** 精确授权：路径必须等于规则目标，或是已记录父目录下的直接子项 */
+function matchesFilePattern(fileName: string, pattern: string): boolean {
+  const regex = new RegExp(
+    `^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`,
+    'i'
+  )
+  return regex.test(fileName)
+}
+
+function fileMatchesRulePatterns(filePath: string, rule: RuleConfig): boolean {
+  if (!rule.patterns?.length) return true
+  const fileName = basename(filePath)
+  return rule.patterns.some((pattern) => matchesFilePattern(fileName, pattern))
+}
+
+/** 精确授权：路径必须等于规则目标，或是在已记录规则根下的后代且仍在规则范围内。 */
 export async function isPathAuthorizedByRule(
   filePath: string,
   rule: RuleConfig,
   meta?: CandidateMatchMeta
 ): Promise<boolean> {
   const normalizedFile = normalizePath(filePath)
+  const targets = await collectRuleTargets(rule)
 
   if (meta?.parentTarget) {
-    const parent = normalizePath(meta.parentTarget)
-    const fileParent = normalizePath(dirname(filePath))
-    if (fileParent !== parent) return false
-    const targets = await collectRuleTargets(rule)
-    return targets.some((t) => normalizePath(t) === parent)
+    const anchor = normalizePath(meta.parentTarget)
+    const authorizedAnchor = targets.some((target) => normalizePath(target) === anchor)
+    if (!authorizedAnchor) return false
+    if (!isPathUnderRoot(normalizedFile, anchor)) return false
+    return fileMatchesRulePatterns(filePath, rule)
   }
 
-  const targets = await collectRuleTargets(rule)
-  return targets.some((t) => normalizePath(t) === normalizedFile)
+  return targets.some((target) => normalizePath(target) === normalizedFile)
 }
 
 export function isOverlyBroadPath(expandedPath: string): boolean {

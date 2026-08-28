@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { RuleConfig, RuleWithMeta, UserRulesState } from '../shared/types'
-import { loadRulesBundle, clearRulesCache } from './rules/rule-loader'
+import { loadRulesBundle, clearRulesCache, loadPathAccessPolicy } from './rules/rule-loader'
 import { validateRuleInput } from './rules/rule-validator'
 import { deleteRuleDraft } from './rules/rule-draft-store'
 import {
@@ -90,6 +90,7 @@ export function importCustomRules(rules: unknown[]): number {
         reason: rule.reason ?? rule.description ?? rule.name,
         impact: rule.impact,
         rebuildable: rule.rebuildable,
+        requiresAppClosed: rule.requiresAppClosed,
         suggestedRisk: rule.category,
         source: 'user-import',
         createdAt: new Date().toISOString()
@@ -118,6 +119,10 @@ export function getProtectedPaths(): string[] {
 
 export function getProtectedLabels(): Record<string, string> {
   return loadRulesBundle().protectedLabels
+}
+
+export function getPathAccessPolicy() {
+  return loadPathAccessPolicy()
 }
 
 /** @deprecated 使用 getProtectedPaths */

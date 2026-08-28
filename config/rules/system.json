@@ -6,11 +6,19 @@
       "category": "safe",
       "contentType": "system-temp",
       "paths": ["%TEMP%", "%LOCALAPPDATA%\\Temp"],
+      "maxAgeDays": 7,
       "defaultChecked": true,
-      "reason": "应用和系统产生的临时文件",
-      "impact": "部分程序可能需重新生成临时数据",
+      "reason": "应用和系统产生的临时文件（跳过 7 天内新建或修改的文件）",
+      "impact": "部分程序可能需重新生成临时数据；正在使用的文件可能删不掉",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "source": "Microsoft Windows 临时目录约定",
+      "testedPlatforms": ["windows"],
+      "testedVersions": ["10", "11"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "cleanupMethod": "trash"
     },
     {
       "id": "windows-temp",
@@ -18,11 +26,19 @@
       "category": "safe",
       "contentType": "system-temp",
       "paths": ["%SystemRoot%\\Temp"],
+      "maxAgeDays": 7,
       "defaultChecked": true,
-      "reason": "系统级临时目录",
+      "reason": "系统级临时目录（跳过 7 天内新建或修改的文件）",
       "impact": "正在使用的临时文件可能删不掉",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "source": "Microsoft Windows 临时目录约定",
+      "testedPlatforms": ["windows"],
+      "testedVersions": ["10", "11"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "cleanupMethod": "trash"
     },
     {
       "id": "thumbcache",
@@ -35,7 +51,14 @@
       "reason": "资源管理器缩略图数据库",
       "impact": "首次浏览图片文件夹时会重新生成",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "source": "Microsoft Windows Explorer 缓存行为",
+      "testedPlatforms": ["windows"],
+      "testedVersions": ["10", "11"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "cleanupMethod": "trash"
     },
     {
       "id": "error-reports",
@@ -47,7 +70,14 @@
       "reason": "程序崩溃后生成的错误报告缓存",
       "impact": "不影响系统运行",
       "rebuildable": true,
-      "cleanupStrategy": "trash"
+      "cleanupStrategy": "trash",
+      "source": "Microsoft WER 目录",
+      "testedPlatforms": ["windows"],
+      "testedVersions": ["10", "11"],
+      "lastVerifiedAt": "2026-08-27",
+      "reviewStatus": "verified",
+      "confidence": "high",
+      "cleanupMethod": "trash"
     },
     {
       "id": "winsxs",
@@ -60,7 +90,10 @@
       "reason": "Windows 组件与更新存储",
       "impact": "不可直接删除，由系统管理",
       "rebuildable": false,
-      "deletable": false
+      "deletable": false,
+      "cleanupMethod": "system-managed",
+      "reviewStatus": "verified",
+      "notes": "应使用 DISM 等系统工具，不作为普通垃圾"
     },
     {
       "id": "windows-old",
@@ -73,7 +106,10 @@
       "reason": "系统升级备份目录",
       "impact": "删除后无法回退到旧版本 Windows",
       "rebuildable": false,
-      "deletable": false
+      "deletable": false,
+      "cleanupMethod": "system-managed",
+      "reviewStatus": "verified",
+      "notes": "应使用磁盘清理或系统设置，不作为普通垃圾"
     },
     {
       "id": "hiberfil",
@@ -85,7 +121,9 @@
       "description": "休眠文件，关休眠才能安全处理",
       "reason": "系统休眠状态文件",
       "impact": "不建议手工删除",
-      "deletable": false
+      "deletable": false,
+      "cleanupMethod": "system-managed",
+      "reviewStatus": "verified"
     },
     {
       "id": "pagefile",
@@ -97,7 +135,9 @@
       "description": "虚拟内存，不建议手工删除",
       "reason": "系统虚拟内存文件",
       "impact": "删除可能影响系统稳定性",
-      "deletable": false
+      "deletable": false,
+      "cleanupMethod": "system-managed",
+      "reviewStatus": "verified"
     }
   ]
 }

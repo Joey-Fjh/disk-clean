@@ -4,25 +4,38 @@ import { resolveScanTaskHeadline, resolveScanTaskSubline } from '../src/renderer
 describe('scan task state', () => {
   it('describes scanning and agent phases without fake percentages', () => {
     expect(
-      resolveScanTaskHeadline({ phase: 'scanning-disk', discoveredCount: 12 })
-    ).toContain('正在扫描磁盘')
+      resolveScanTaskHeadline({ phase: 'scanning', driveLabel: 'C: 盘', discoveredCount: 12 })
+    ).toContain('正在扫描 C: 盘')
     expect(
-      resolveScanTaskHeadline({ phase: 'organizing-local', discoveredCount: 320 })
+      resolveScanTaskHeadline({ phase: 'organizing', driveLabel: 'C: 盘', discoveredCount: 320 })
     ).toContain('320')
-    expect(resolveScanTaskHeadline({ phase: 'agent-reviewing', discoveredCount: 320 })).toContain(
-      '智能复核'
-    )
-    expect(resolveScanTaskHeadline({ phase: 'agent-failed', discoveredCount: 1 })).toContain(
-      '本地规则结果'
-    )
+    expect(
+      resolveScanTaskHeadline({ phase: 'analyzing', driveLabel: 'C: 盘', discoveredCount: 320 })
+    ).toContain('本地清理规则')
+    expect(
+      resolveScanTaskHeadline({
+        phase: 'analyzing',
+        driveLabel: 'C: 盘',
+        discoveredCount: 320,
+        agentCandidateCount: 5
+      })
+    ).toContain('5 个高占用位置')
+    expect(
+      resolveScanTaskHeadline({ phase: 'failed', driveLabel: 'C: 盘', discoveredCount: 1 })
+    ).toContain('本地规则结果')
   })
 
-  it('uses subline for discovered counts without repeating the headline', () => {
+  it('uses subline for updating results', () => {
     expect(
-      resolveScanTaskSubline({ phase: 'scanning-disk', discoveredCount: 9 })
-    ).toBe('已发现 9 项')
-    expect(resolveScanTaskHeadline({ phase: 'scanning-disk', discoveredCount: 9 })).toBe(
-      '正在扫描磁盘'
-    )
+      resolveScanTaskSubline({
+        phase: 'scanning',
+        driveLabel: 'C: 盘',
+        discoveredCount: 9,
+        resultsUpdating: true
+      })
+    ).toBe('结果仍在更新…')
+    expect(
+      resolveScanTaskHeadline({ phase: 'scanning', driveLabel: 'C: 盘', discoveredCount: 9 })
+    ).toContain('正在扫描')
   })
 })

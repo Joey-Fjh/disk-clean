@@ -1,6 +1,8 @@
 import type { RuleConfig, RulesBundle } from '../../shared/types'
 import type { CoreSafetyPolicy, DetectionHeuristic, RulePackManifest } from '../../shared/rule-layer-types'
 import { RULE_PACK_SCHEMA_VERSION } from '../../shared/rule-layer-types'
+import { sanitizeRuleForLoad } from '../../shared/rule-enforcement'
+import { DEFAULT_PATH_ACCESS_POLICY, type PathAccessPolicy } from '../../shared/path-access-policy'
 import { getConfigDir } from './config-dir'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -18,6 +20,40 @@ let safetyCache: CoreSafetyPolicy | null = null
 let heuristicCache: DetectionHeuristic[] | null = null
 let officialPackCache: RulePackManifest[] | null = null
 let legacyBundleCache: RulesBundle | null = null
+let pathAccessPolicyCache: PathAccessPolicy | null = null
+
+export function sanitizeRulesForLoad(rules: RuleConfig[]): RuleConfig[] {
+  return rules.map((rule) => sanitizeRuleForLoad(rule))
+}
+
+function parsePolicyStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  if (!value.every((item) => typeof item === 'string' && item.trim().length > 0)) return null
+  return value.map((item) => item.trim())
+}
+
+export function loadPathAccessPolicy(): PathAccessPolicy {
+  if (pathAccessPolicyCache) return pathAccessPolicyCache
+  const path = join(getConfigDir(), 'safety', 'path-access-policy.json')
+  if (!existsSync(path)) {
+    pathAccessPolicyCache = DEFAULT_PATH_ACCESS_POLICY
+    return pathAccessPolicyCache
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>
+    const denyRead = parsePolicyStringArray(parsed.denyRead)
+    const readOnlyHighRisk = parsePolicyStringArray(parsed.readOnlyHighRisk)
+    const denyDelete = parsePolicyStringArray(parsed.denyDelete)
+    if (!denyRead || !readOnlyHighRisk || !denyDelete) {
+      pathAccessPolicyCache = DEFAULT_PATH_ACCESS_POLICY
+      return pathAccessPolicyCache
+    }
+    pathAccessPolicyCache = { denyRead, readOnlyHighRisk, denyDelete }
+  } catch {
+    pathAccessPolicyCache = DEFAULT_PATH_ACCESS_POLICY
+  }
+  return pathAccessPolicyCache
+}
 
 function loadProtectedPathsFile(path: string): { paths: string[]; labels: Record<string, string> } {
   if (!existsSync(path)) return { paths: [], labels: {} }
@@ -51,7 +87,8 @@ export function loadCoreSafetyPolicy(): CoreSafetyPolicy {
       '禁止命令、脚本或任意执行',
       '清理优先进入回收站',
       '所有删除须经 SafetyValidator 校验'
-    ]
+    ],
+    pathAccessPolicy: loadPathAccessPolicy()
   }
   return safetyCache
 }
@@ -77,12 +114,12 @@ function loadRulesFromDir(dir: string): RuleConfig[] {
   for (const file of files) {
     const raw = readFileSync(join(dir, file), 'utf-8')
     const parsed = JSON.parse(raw) as { rules?: RuleConfig[] }
-    if (Array.isArray(parsed.rules)) rules.push(...parsed.rules)
+    if (Array.isArray(parsed.rules)) rules.push(...sanitizeRulesForLoad(parsed.rules))
   }
   return rules
 }
 
-function loadOfficialPacksFromDir(dir: string): RulePackManifest[] {
+export function loadOfficialPacksFromDir(dir: string): RulePackManifest[] {
   if (!existsSync(dir)) return []
   const files = readdirSync(dir)
     .filter((name) => name.endsWith('.json'))
@@ -92,7 +129,10 @@ function loadOfficialPacksFromDir(dir: string): RulePackManifest[] {
     const raw = readFileSync(join(dir, file), 'utf-8')
     const parsed = JSON.parse(raw) as { rules?: RuleConfig[]; schemaVersion?: string; id?: string }
     if (parsed.schemaVersion === RULE_PACK_SCHEMA_VERSION && parsed.id && Array.isArray(parsed.rules)) {
-      packs.push(parsed as RulePackManifest)
+      packs.push({
+        ...parsed,
+        rules: sanitizeRulesForLoad(parsed.rules)
+      } as RulePackManifest)
       continue
     }
     const meta = OFFICIAL_PACK_NAMES[file] ?? {
@@ -108,7 +148,7 @@ function loadOfficialPacksFromDir(dir: string): RulePackManifest[] {
       origin: 'official',
       platform: 'windows',
       description: meta.description,
-      rules: parsed.rules ?? []
+      rules: sanitizeRulesForLoad(parsed.rules ?? [])
     })
   }
   return packs
@@ -157,6 +197,7 @@ export function clearRulesLayerCache(): void {
   heuristicCache = null
   officialPackCache = null
   legacyBundleCache = null
+  pathAccessPolicyCache = null
 }
 
 /** @deprecated 使用 clearRulesLayerCache */

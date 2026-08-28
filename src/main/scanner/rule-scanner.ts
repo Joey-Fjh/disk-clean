@@ -3,10 +3,12 @@ import { readdir, lstat } from 'fs/promises'
 import type { Category, ContentType, RuleWithMeta, ScanItem, ScanError, ScanProgress } from '../../shared/types'
 import { mapRuleScanItem } from '../../shared/candidate-model'
 import { shouldAutoSelect } from '../../shared/candidate-policy'
-import { expandEnvVars, getDriveLetter, isProtectedPath, matchesDriveFilter } from '../../shared/path-utils'
+import { expandEnvVars, getDriveLetter, matchesDriveFilter } from '../../shared/path-utils'
 import { collectRuleTargets } from '../../shared/rule-match'
-import { getActiveRulesWithMeta, getProtectedPaths } from '../rules'
+import { getActiveRulesWithMeta, getProtectedPaths, getPathAccessPolicy } from '../rules'
 import { enforceDraftRuleTargetLimit } from '../rules/rule-draft-scope'
+import { isRuleOrdinaryDeletable } from '../../shared/rule-enforcement'
+import { isPathOrdinaryDeleteForbidden } from '../../shared/path-access-policy'
 import { isScanCancelled, yieldToEventLoop } from './scan-controller'
 import { measurePathSizeDetailed } from './measure-size'
 
@@ -14,10 +16,43 @@ type ProgressCallback = (progress: ScanProgress) => void
 type ItemsCallback = (items: ScanItem[]) => void
 
 const MAX_CHILDREN_PER_DIR = 300
+const MAX_AGE_RECURSE_DEPTH = 8
 
 function isOlderThan(maxAgeDays: number, mtimeMs: number): boolean {
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
   return mtimeMs < cutoff
+}
+
+async function directoryContainsRecentFile(
+  dirPath: string,
+  maxAgeDays: number,
+  depth: number
+): Promise<boolean> {
+  if (depth > MAX_AGE_RECURSE_DEPTH) return true
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (isScanCancelled()) break
+      if (entry.isSymbolicLink()) continue
+      const childPath = join(dirPath, entry.name)
+      try {
+        const childInfo = await lstat(childPath)
+        if (childInfo.isSymbolicLink()) continue
+        if (childInfo.isFile()) {
+          if (!isOlderThan(maxAgeDays, childInfo.mtimeMs)) return true
+          continue
+        }
+        if (await directoryContainsRecentFile(childPath, maxAgeDays, depth + 1)) {
+          return true
+        }
+      } catch {
+        // skip unreadable child
+      }
+    }
+  } catch {
+    return true
+  }
+  return false
 }
 
 function resolveContentType(rule: RuleWithMeta): ContentType {
@@ -30,8 +65,8 @@ function resolveRecoveryMode(rule: RuleWithMeta): ScanItem['recoveryMode'] {
 }
 
 function resolveDeletable(rule: RuleWithMeta, targetPath: string, protectedPaths: string[]): boolean {
-  if (rule.deletable === false || rule.category === 'dangerous' || rule.nativeManaged) return false
-  if (isProtectedPath(targetPath, protectedPaths)) return false
+  if (!isRuleOrdinaryDeletable(rule)) return false
+  if (isPathOrdinaryDeleteForbidden(targetPath, protectedPaths, getPathAccessPolicy())) return false
   return true
 }
 
@@ -71,6 +106,7 @@ function toScanItem(
     reason: rule.reason ?? rule.description,
     impact: rule.impact,
     rebuildable: rule.rebuildable,
+    requiresAppClosed: rule.requiresAppClosed,
     recoveryMode: resolveRecoveryMode(rule),
     discoverySources: ['rule'],
     evidence: [],
@@ -92,8 +128,11 @@ function shouldListChildren(rule: RuleWithMeta): boolean {
 async function expandDirectoryChildren(
   rule: RuleWithMeta,
   dirPath: string,
-  protectedPaths: string[]
+  protectedPaths: string[],
+  ruleRootTarget: string,
+  depth = 0
 ): Promise<ScanItem[]> {
+  if (depth >= MAX_AGE_RECURSE_DEPTH) return []
   const items: ScanItem[] = []
 
   try {
@@ -109,31 +148,44 @@ async function expandDirectoryChildren(
         const childInfo = await lstat(childPath)
         if (childInfo.isSymbolicLink()) continue
 
-        if (rule.maxAgeDays && childInfo.isFile()) {
-          if (!isOlderThan(rule.maxAgeDays, childInfo.mtimeMs)) continue
-        }
-
-        let size: number
-        let snapshotComplete = true
         if (childInfo.isFile()) {
-          size = childInfo.size
+          if (rule.maxAgeDays && !isOlderThan(rule.maxAgeDays, childInfo.mtimeMs)) continue
+          if (childInfo.size === 0) continue
+          items.push(
+            toScanItem(rule, childPath, childInfo.size, protectedPaths, {
+              parentTarget: ruleRootTarget,
+              mtimeMs: childInfo.mtimeMs,
+              sizeIsEstimate: false,
+              entryKind: 'file',
+              snapshotComplete: true
+            })
+          )
+          listed++
+        } else if (rule.maxAgeDays) {
+          const nested = await expandDirectoryChildren(
+            rule,
+            childPath,
+            protectedPaths,
+            ruleRootTarget,
+            depth + 1
+          )
+          items.push(...nested)
+          listed += nested.length
         } else {
           const measured = await measurePathSizeDetailed(childPath, rule)
-          size = measured.size
-          snapshotComplete = !measured.incomplete
+          if (measured.size === 0) continue
+          items.push(
+            toScanItem(rule, childPath, measured.size, protectedPaths, {
+              parentTarget: ruleRootTarget,
+              mtimeMs: childInfo.mtimeMs,
+              sizeIsEstimate: true,
+              entryKind: 'directory',
+              snapshotComplete: !measured.incomplete
+            })
+          )
+          listed++
         }
-        if (size === 0) continue
 
-        items.push(
-          toScanItem(rule, childPath, size, protectedPaths, {
-            parentTarget: dirPath,
-            mtimeMs: childInfo.mtimeMs,
-            sizeIsEstimate: !childInfo.isFile(),
-            entryKind: childInfo.isFile() ? 'file' : 'directory',
-            snapshotComplete
-          })
-        )
-        listed++
         if (listed % 20 === 0) await yieldToEventLoop()
         if (listed >= MAX_CHILDREN_PER_DIR) break
       } catch {
@@ -179,11 +231,17 @@ async function scanTarget(
     ]
   }
 
-  const children = await expandDirectoryChildren(rule, targetPath, protectedPaths)
+  const children = await expandDirectoryChildren(rule, targetPath, protectedPaths, targetPath)
   if (children.length > 0) return children
+
+  if (rule.maxAgeDays) {
+    const hasRecent = await directoryContainsRecentFile(targetPath, rule.maxAgeDays, 0)
+    if (hasRecent) return []
+  }
 
   const measured = await measurePathSizeDetailed(targetPath, rule)
   if (measured.size === 0) return []
+  if (rule.maxAgeDays) return []
   return [
     toScanItem(rule, targetPath, measured.size, protectedPaths, {
       mtimeMs: info.mtimeMs,

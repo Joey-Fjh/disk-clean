@@ -1,65 +1,53 @@
 import type { AgentAnalysisStatus } from '../shared/agent-types'
 import type { ScanPhase } from '../shared/types'
+import {
+  type CleanupTaskPhase,
+  type CleanupTaskProgressInput,
+  isCleanupTaskInProgress,
+  mapScanPhaseToCleanupTaskPhase,
+  resolveCleanupTaskHeadline,
+  resolveCleanupTaskSubline
+} from '../shared/cleanup-task-model'
 
-export type ScanTaskPhase =
-  | 'idle'
-  | 'scanning-disk'
-  | 'organizing-local'
-  | 'agent-reviewing'
-  | 'completed'
-  | 'agent-failed'
-  | 'cancelled'
+export type ScanTaskPhase = CleanupTaskPhase
 
-export interface ScanTaskStateInput {
-  phase: ScanTaskPhase
-  discoveredCount: number
-  agentStatus?: AgentAnalysisStatus
-}
+export interface ScanTaskStateInput extends CleanupTaskProgressInput {}
+
+export { isCleanupTaskInProgress, mapScanPhaseToCleanupTaskPhase }
 
 export function resolveScanTaskHeadline(input: ScanTaskStateInput): string {
-  switch (input.phase) {
-    case 'scanning-disk':
-      return '正在扫描磁盘'
-    case 'organizing-local':
-      return `已发现 ${input.discoveredCount} 项，正在根据本地规则整理`
-    case 'agent-reviewing':
-      return '本地识别完成，正在进行智能复核'
-    case 'completed':
-      return input.agentStatus === 'skipped_no_provider'
-        ? '分析完成（未配置模型，已使用本地规则结果）'
-        : '分析完成'
-    case 'agent-failed':
-      return '智能复核失败，已使用本地规则结果'
-    case 'cancelled':
-      return '扫描已停止，未运行智能复核'
-    default:
-      return '准备就绪'
-  }
+  return resolveCleanupTaskHeadline(input)
 }
 
 export function mapScanProgressPhaseToTaskPhase(
   scanning: boolean,
-  scanPhase?: ScanPhase
+  scanPhase?: ScanPhase,
+  agentReviewing?: boolean
 ): ScanTaskPhase {
-  if (!scanning) return 'idle'
-  if (scanPhase === 'rule-identification') return 'organizing-local'
-  return 'scanning-disk'
+  return mapScanPhaseToCleanupTaskPhase(scanning, scanPhase, agentReviewing)
 }
 
 export function resolveScanTaskSubline(input: ScanTaskStateInput): string {
-  switch (input.phase) {
-    case 'scanning-disk':
-    case 'organizing-local':
-      return input.discoveredCount > 0 ? `已发现 ${input.discoveredCount} 项` : ''
-    case 'agent-reviewing':
-      return '正在进行智能复核…'
-    case 'agent-failed':
-      return '已回退到本地规则结果'
-    default:
-      return ''
-  }
+  return resolveCleanupTaskSubline(input)
 }
 
 export function isScanningJudgmentPending(status: string): boolean {
   return status === 'identifying' || status === 'pending'
+}
+
+export function mapAgentStatusToTaskPhase(
+  agentStatus: AgentAnalysisStatus | undefined,
+  scanning: boolean
+): ScanTaskPhase {
+  if (scanning) return mapScanProgressPhaseToTaskPhase(true)
+  if (agentStatus === 'running') return 'analyzing'
+  if (agentStatus === 'failed') return 'failed'
+  if (
+    agentStatus === 'completed' ||
+    agentStatus === 'skipped_no_provider' ||
+    agentStatus === 'cancelled'
+  ) {
+    return 'completed'
+  }
+  return 'idle'
 }

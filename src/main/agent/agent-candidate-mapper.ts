@@ -1,4 +1,5 @@
 import { applyAgentJudgmentToItem, normalizeCandidate } from '../../shared/candidate-model'
+import { markCandidateAgentConfirmable } from '../../shared/execution-safety'
 import type { AgentCandidateInsight, AgentVerdict } from '../../shared/agent-types'
 import type { CandidateEvidence, ConfidenceLevel, ScanItem } from '../../shared/types'
 import { isProtectedPath } from '../../shared/path-utils'
@@ -73,7 +74,8 @@ export function applyAgentRecommendations(
     if (!recommendation) return item
     appliedCount += 1
     const protectedPath = isProtectedPath(item.path, protectedPaths)
-    return applyAgentRecommendation(item, recommendation, protectedPath)
+    const prepared = markCandidateAgentConfirmable(item)
+    return applyAgentRecommendation(prepared, recommendation, protectedPath)
   })
 
   return { items: nextItems, appliedCount }

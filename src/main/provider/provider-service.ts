@@ -1,9 +1,13 @@
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
 import type {
+  CreateProviderProfileInput,
   ProviderConfigPublic,
+  ProviderProfilePublic,
+  ProviderProfilesPublicState,
   ProviderTestResult,
-  SaveProviderConfigInput
+  SaveProviderConfigInput,
+  UpdateProviderProfileInput
 } from '../../shared/provider-types'
 import { ProviderConfigStore, type SafeStorageAdapter } from './provider-config-store'
 import { chatCompletion } from './provider-client'
@@ -49,43 +53,113 @@ export function setProviderStoreForTests(store: ProviderConfigStore | null): voi
   storeInstance = store
 }
 
-export function getProviderConfig(): ProviderConfigPublic | null {
-  return getProviderStore().getPublicConfig()
+function profileToLegacyPublic(profile: ProviderProfilePublic): ProviderConfigPublic {
+  return {
+    providerId: profile.providerId,
+    protocol: profile.protocol,
+    baseUrl: profile.baseUrl,
+    model: profile.model,
+    hasKey: profile.hasKey,
+    keyLastFour: profile.keyLastFour
+  }
 }
 
-export function saveProviderConfig(input: SaveProviderConfigInput): ProviderConfigPublic {
+export function listProviderProfiles(): ProviderProfilesPublicState {
+  return getProviderStore().listProfilesPublic()
+}
+
+export function getActiveProviderProfile(): ProviderProfilePublic | null {
+  return getProviderStore().getActiveProfilePublic()
+}
+
+/** Agent 与兼容层：返回当前启用配置的公开字段（不含 Key）。 */
+export function getProviderConfig(): ProviderConfigPublic | null {
+  const active = getActiveProviderProfile()
+  return active ? profileToLegacyPublic(active) : null
+}
+
+export function createProviderProfile(input: CreateProviderProfileInput): ProviderProfilesPublicState {
   if (!input || typeof input !== 'object') {
     throw new ProviderError('INVALID_INPUT', '配置无效')
   }
-  return getProviderStore().saveConfig({
+  return getProviderStore().createProfile(input)
+}
+
+export function updateProviderProfile(input: UpdateProviderProfileInput): ProviderProfilesPublicState {
+  if (!input || typeof input !== 'object') {
+    throw new ProviderError('INVALID_INPUT', '配置无效')
+  }
+  return getProviderStore().updateProfile(input)
+}
+
+export function deleteProviderProfile(profileId: string): ProviderProfilesPublicState {
+  return getProviderStore().deleteProfile(profileId)
+}
+
+export function setActiveProviderProfile(profileId: string): ProviderProfilesPublicState {
+  return getProviderStore().setActiveProfile(profileId)
+}
+
+/** 测试辅助：创建或更新当前启用配置。 */
+export function saveProviderConfig(input: SaveProviderConfigInput): ProviderConfigPublic {
+  const state = listProviderProfiles()
+  const active = state.profiles.find((p) => p.id === state.activeProfileId)
+  if (active) {
+    const next = updateProviderProfile({
+      profileId: active.id,
+      name: active.name,
+      providerId: input.providerId,
+      baseUrl: input.baseUrl,
+      model: input.model,
+      apiKey: input.apiKey
+    })
+    const updated = next.profiles.find((p) => p.id === next.activeProfileId)
+    if (!updated) throw new ProviderError('CONFIG_MISSING', '未找到可用的模型配置')
+    return profileToLegacyPublic(updated)
+  }
+
+  const created = createProviderProfile({
+    name: '测试配置',
     providerId: input.providerId,
     baseUrl: input.baseUrl,
     model: input.model,
     apiKey: input.apiKey
   })
+  const profile = created.profiles.find((p) => p.id === created.activeProfileId)
+  if (!profile) throw new ProviderError('CONFIG_MISSING', '未找到可用的模型配置')
+  return profileToLegacyPublic(profile)
 }
 
-export function deleteProviderApiKey(): ProviderConfigPublic | null {
-  return getProviderStore().deleteApiKey()
-}
-
-export function requireRunnableConfig(): { config: ProviderConfigPublic; apiKey: string } {
-  const config = getProviderStore().getPublicConfig()
-  if (!config?.hasKey || !config.model.trim() || !config.baseUrl.trim()) {
+export function requireRunnableConfig(profileId?: string): {
+  config: ProviderConfigPublic
+  apiKey: string
+  profileId: string
+} {
+  const state = listProviderProfiles()
+  const id = profileId ?? state.activeProfileId
+  if (!id) {
     throw new ProviderError('CONFIG_MISSING', '请先保存完整的模型配置和 API Key')
   }
-  const apiKey = getProviderStore().getDecryptedApiKey()
+  const profile = state.profiles.find((p) => p.id === id)
+  if (!profile) {
+    throw new ProviderError('PROFILE_NOT_FOUND', '未找到指定的模型配置')
+  }
+  if (!profile.hasKey || !profile.model.trim() || !profile.baseUrl.trim()) {
+    throw new ProviderError('CONFIG_MISSING', '请先保存完整的模型配置和 API Key')
+  }
+  const apiKey = getProviderStore().getDecryptedApiKey(id)
   if (!apiKey) {
     throw new ProviderError('CONFIG_MISSING', '未找到可用的 API Key')
   }
-  return { config, apiKey }
+  return { config: profileToLegacyPublic(profile), apiKey, profileId: id }
 }
 
 export async function testProviderConnection(
+  profileId: string,
   fetchFn?: typeof fetch
 ): Promise<ProviderTestResult> {
   try {
-    const { config, apiKey } = requireRunnableConfig()
+    const { config, apiKey } = requireRunnableConfig(profileId)
     const result = await chatCompletion({
       baseUrl: config.baseUrl,
       apiKey,
@@ -124,10 +198,11 @@ function parseCapabilityJson(text: string): boolean {
 }
 
 export async function testProviderCapability(
+  profileId: string,
   fetchFn?: typeof fetch
 ): Promise<ProviderTestResult> {
   try {
-    const { config, apiKey } = requireRunnableConfig()
+    const { config, apiKey } = requireRunnableConfig(profileId)
     const result = await chatCompletion({
       baseUrl: config.baseUrl,
       apiKey,

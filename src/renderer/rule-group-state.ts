@@ -1,13 +1,13 @@
-import type { Category } from '../shared/types'
+import type { CleanupDisplayCategory } from '../shared/cleanup-display-category'
 
 export class RuleGroupExpansionState {
-  private readonly expandedByCategory = new Map<Category, Set<string>>()
+  private readonly expandedByCategory = new Map<CleanupDisplayCategory, Set<string>>()
 
   clear(): void {
     this.expandedByCategory.clear()
   }
 
-  isExpanded(category: Category, ruleName: string, isFirstInCategory: boolean): boolean {
+  isExpanded(category: CleanupDisplayCategory, ruleName: string, isFirstInCategory: boolean): boolean {
     const expanded = this.expandedByCategory.get(category)
     if (!expanded) {
       if (isFirstInCategory) {
@@ -20,7 +20,7 @@ export class RuleGroupExpansionState {
     return expanded.has(ruleName)
   }
 
-  setExpanded(category: Category, ruleName: string, expanded: boolean): void {
+  setExpanded(category: CleanupDisplayCategory, ruleName: string, expanded: boolean): void {
     let names = this.expandedByCategory.get(category)
     if (!names) {
       names = new Set()

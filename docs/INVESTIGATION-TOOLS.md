@@ -15,7 +15,7 @@
 Renderer / 模型只能通过 IPC 提交：
 
 - `sessionId`（长度 ≤ `MAX_SESSION_ID_LENGTH`）
-- `candidateRef`（与阶段 4 相同的 `candidate-N` 映射，长度 ≤ `MAX_CANDIDATE_REF_LENGTH`）
+- `candidateRef`（canonical `candidate-N`，由 `candidate-ref-index.ts` 在 session+revision 内稳定映射，长度 ≤ `MAX_CANDIDATE_REF_LENGTH`）
 - `relativePath`（相对于候选根目录，可选，长度 ≤ `MAX_RELATIVE_PATH_LENGTH`）
 - `limit` / `depth`（受 `INVESTIGATION_LIMITS` 约束）
 

@@ -18,7 +18,7 @@ import type {
   InvestigationToolResult
 } from '../../../shared/investigation-types'
 import { getScanSession } from '../../scan/scan-session-store'
-import { getProtectedPaths } from '../../rules'
+import { getProtectedPaths, getPathAccessPolicy } from '../../rules'
 import { resolveCandidateByRef } from './candidate-ref'
 import { InvestigationError, investigationErrorMessage } from './investigation-errors'
 import { buildInvestigationCacheKey, getInvestigationResultCache } from './investigation-cache'
@@ -159,11 +159,12 @@ export async function executeInvestigationTool(
       }
     }
 
-    const candidate = resolveCandidateByRef(session, normalized.candidateRef)
+    const candidate = resolveCandidateByRef(session, normalized.candidateRef, fingerprint)
     const resolved = await resolveInvestigationPath({
       candidate,
       relativePath: normalized.relativePath,
-      protectedPaths: getProtectedPaths()
+      protectedPaths: getProtectedPaths(),
+      accessPolicy: getPathAccessPolicy()
     })
 
     const toolController = new AbortController()
