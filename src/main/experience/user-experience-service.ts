@@ -48,8 +48,8 @@ function matcherSignature(kind: UserExperienceKind, matcher: UserExperienceMatch
     kind,
     ruleId: matcher.ruleId ?? '',
     contentType: matcher.contentType ?? '',
-    relativePathSuffix: matcher.relativePathSuffix ?? '',
-    softwareName: matcher.softwareName ?? ''
+    relativePathSuffix: (matcher.relativePathSuffix ?? '').toLowerCase(),
+    softwareName: (matcher.softwareName ?? '').toLowerCase()
   })
 }
 
@@ -74,7 +74,7 @@ export function createUserExperience(input: CreateUserExperienceInput): UserExpe
   const matcher = buildMatcher(candidate, drive)
   const signature = matcherSignature(input.kind, matcher)
   const duplicateIndex = store.entries.findIndex(
-    (entry) => entry.enabled && matcherSignature(entry.kind, entry.matcher) === signature
+    (entry) => matcherSignature(entry.kind, entry.matcher) === signature
   )
   const now = Date.now()
   const name =

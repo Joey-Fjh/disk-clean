@@ -10,6 +10,7 @@
 - 路径：`%APPDATA%/disk-clean/config/user-experience.json`
 - 上限：200 条；单文件 256KB；字段长度限制见 `user-experience-limits.ts`
 - 损坏或超限文件：隔离至 `user-experience-corrupt-*.json`（有容量与份数上限），再建立干净存储
+- 合法文件在净化/隔离写回失败时：**保留原主文件**，仅返回内存中的净化结果
 - 非法条目：写入 `user-experience-isolated.json`（有容量上限）
 
 ## 匹配

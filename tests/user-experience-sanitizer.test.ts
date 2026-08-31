@@ -67,7 +67,7 @@ describe('user experience sanitizer', () => {
   })
 
   it('rejects invalid timestamps', () => {
-    const { state } = sanitizeUserExperienceStore({
+    const { state, changed } = sanitizeUserExperienceStore({
       schemaVersion: 1,
       entries: [
         {
@@ -84,6 +84,7 @@ describe('user experience sanitizer', () => {
       ]
     })
     expect(state.entries).toHaveLength(0)
+    expect(changed).toBe(true)
   })
 
   it('asserts json byte size before parse', () => {
