@@ -91,6 +91,14 @@ export interface DiskCleanAPI {
     candidateIds?: string[]
   }) => Promise<{ exported: boolean }>
   getSafetyPolicy: () => Promise<CoreSafetyPolicy>
+  listUserExperiences: () => Promise<import('../shared/user-experience-types').UserExperienceEntry[]>
+  createUserExperience: (
+    input: import('../shared/user-experience-types').CreateUserExperienceInput
+  ) => Promise<import('../shared/user-experience-types').UserExperienceEntry>
+  updateUserExperience: (
+    input: import('../shared/user-experience-types').UpdateUserExperienceInput
+  ) => Promise<import('../shared/user-experience-types').UserExperienceEntry>
+  deleteUserExperience: (id: string) => Promise<boolean>
   getActiveScanSession: () => Promise<{
     sessionId: string
     fingerprint: string

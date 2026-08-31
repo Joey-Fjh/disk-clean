@@ -90,6 +90,7 @@ import { resolveTaskHeadline, resolveTaskSubline, runPlanningPhase } from './cle
 import { appendDomInBatches } from './batch-dom'
 import { buildResultStructureKey, patchResultCategoriesDom } from './result-category-patch'
 import { wireRuleKnowledgeSettings } from './rule-knowledge-settings'
+import { wireUserExperienceSettings } from './user-experience-settings'
 import {
   resolveProgressBarMode,
   shouldShowExtensionEntryForCategory,
@@ -139,6 +140,7 @@ wireRuleDraftActions(
   }
 )
 wireRuleKnowledgeSettings()
+wireUserExperienceSettings()
 
 // ── Theme ──
 const themeControl = document.getElementById('theme-control')!
@@ -714,6 +716,33 @@ function wireScanItemListElement(
   })
   draftPickLabel.append(draftPick, document.createTextNode('识别样本'))
   li.appendChild(draftPickLabel)
+
+  if (!scanning && scanResult?.sessionId && normalized.selection.selectable) {
+    const keepBtn = document.createElement('button')
+    keepBtn.type = 'button'
+    keepBtn.className = 'btn btn-link item-keep-experience'
+    keepBtn.textContent = '以后保留此项'
+    keepBtn.addEventListener('click', async () => {
+      const confirmed = await showConfirmDialog({
+        title: '保存保留经验',
+        message: '将把此类项目标记为「建议保留」，下次扫描时不会自动勾选。',
+        details: ['仅保存匹配特征，不授予删除权限', '可在设置 → 规则与经验中撤销']
+      })
+      if (!confirmed || !scanResult?.sessionId) return
+      try {
+        await window.diskClean.createUserExperience({
+          sessionId: scanResult.sessionId,
+          candidateId: item.id,
+          kind: 'keep-exclusion',
+          confirmed: true
+        })
+        statusText.textContent = '已保存保留经验，将在下次扫描生效'
+      } catch (err) {
+        statusText.textContent = err instanceof Error ? err.message : '保存经验失败'
+      }
+    })
+    li.querySelector('.item-info')?.appendChild(keepBtn)
+  }
 
   const pathBtnEl = li.querySelector('.item-path') as HTMLButtonElement
   pathBtnEl.addEventListener('click', async () => {

@@ -20,6 +20,7 @@ import type {
   RuleDraftPreviewResult,
   StoredRuleDraft
 } from '../shared/rule-layer-types'
+import type { CreateUserExperienceInput, UpdateUserExperienceInput, UserExperienceEntry } from '../shared/user-experience-types'
 import type { AgentIpcResult } from '../shared/agent-ipc'
 import type { CleanupIpcResult } from '../shared/cleanup-ipc'
 import type { ProviderIpcResult } from '../shared/provider-ipc'
@@ -200,6 +201,12 @@ contextBridge.exposeInMainWorld('diskClean', {
     candidateIds?: string[]
   }): Promise<{ exported: boolean }> => invokeAgentIpc('rules:exportWritingPack', input),
   getSafetyPolicy: (): Promise<CoreSafetyPolicy> => invokeAgentIpc('rules:safetyPolicy'),
+  listUserExperiences: (): Promise<UserExperienceEntry[]> => invokeAgentIpc('experience:list'),
+  createUserExperience: (input: CreateUserExperienceInput): Promise<UserExperienceEntry> =>
+    invokeAgentIpc('experience:create', input),
+  updateUserExperience: (input: UpdateUserExperienceInput): Promise<UserExperienceEntry> =>
+    invokeAgentIpc('experience:update', input),
+  deleteUserExperience: (id: string): Promise<boolean> => invokeAgentIpc('experience:delete', id),
   getActiveScanSession: (): Promise<{
     sessionId: string
     fingerprint: string

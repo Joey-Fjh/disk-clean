@@ -21,6 +21,7 @@ import { registerProviderIpc } from './provider/provider-ipc'
 import { registerAgentIpc } from './agent/agent-ipc'
 import { registerInvestigationIpc } from './agent/investigation/investigation-ipc'
 import { registerRuleLayerIpc } from './rules/rule-layer-ipc'
+import { registerUserExperienceIpc } from './experience/user-experience-ipc'
 import { hardenMainWindow, isTrustedMainWindowSender, setMainWindow } from './window-security'
 import { RULE_DRAFT_LIMITS } from '../shared/rule-draft-limits'
 import { assertImportJsonSize } from './rules/rule-store-sanitizer'
@@ -129,6 +130,7 @@ app.whenReady().then(() => {
   registerAgentIpc()
   registerInvestigationIpc()
   registerRuleLayerIpc()
+  registerUserExperienceIpc()
   registerCleanupIpcHandlers()
   void createWindow()
 

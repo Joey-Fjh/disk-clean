@@ -9,6 +9,7 @@ import type { RuleConfig } from '../shared/types'
 import { CANDIDATE_TAB_LABELS, CONTENT_TYPE_LABELS } from '../shared/types'
 import { CLEANUP_DISPLAY_CATEGORY_LABELS } from '../shared/cleanup-display-category'
 import { formatBytes } from '../shared/format-bytes'
+import { loadUserExperienceSettings } from './user-experience-settings'
 
 const DRAFT_USER_STATUS_LABELS: Record<string, string> = {
   draft: '待确认',
@@ -136,30 +137,33 @@ function renderEmpty(list: HTMLElement, message: string): void {
 
 export function formatRuleKnowledgeSummary(
   packs: Array<{ enabled: boolean }>,
-  drafts: StoredRuleDraft[]
+  drafts: StoredRuleDraft[],
+  experienceCount = 0
 ): string {
   const enabledPacks = packs.filter((pack) => pack.enabled).length
   const pendingDrafts = drafts.filter((draft) =>
     ['validated', 'previewed', 'draft'].includes(draft.status)
   ).length
-  return `规则包 ${enabledPacks}/${packs.length} · 待确认扩展规则 ${pendingDrafts}`
+  return `规则包 ${enabledPacks}/${packs.length} · 待确认扩展规则 ${pendingDrafts} · 我的经验 ${experienceCount}`
 }
 
 export async function loadRuleKnowledgeSettings(): Promise<void> {
-  const [packs, drafts, safety] = await Promise.all([
+  const [packs, drafts, safety, experiences] = await Promise.all([
     window.diskClean.listRulePacks(),
     window.diskClean.listRuleDrafts(),
-    window.diskClean.getSafetyPolicy()
+    window.diskClean.getSafetyPolicy(),
+    window.diskClean.listUserExperiences()
   ])
 
   const summary = document.getElementById('rules-card-summary')
-  if (summary) summary.textContent = formatRuleKnowledgeSummary(packs, drafts)
+  if (summary) summary.textContent = formatRuleKnowledgeSummary(packs, drafts, experiences.length)
 
   syncPostEnableNotice(drafts)
 
   renderRulePacks(packs)
   renderRuleDrafts(drafts)
   renderSafetyPolicy(safety)
+  await loadUserExperienceSettings()
 }
 
 function renderRulePacks(packs: RulePackListItem[]): void {

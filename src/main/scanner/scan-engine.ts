@@ -11,6 +11,8 @@ import {
   notifyRuleDraftNewScanSession
 } from '../rules/rule-draft-agent-service'
 import { enrichItemsWithDetectionHeuristics } from '../rules/heuristic-enricher'
+import { enrichItemsWithUserExperiences } from '../experience/experience-enricher'
+import { getEnabledUserExperiences } from '../experience/user-experience-service'
 import { getAllRulesWithMeta, getProtectedPaths } from '../rules'
 import { normalizeCandidate } from '../../shared/candidate-model'
 import { finalizeLocalScanItem } from '../../shared/candidate-judgment'
@@ -130,7 +132,10 @@ export async function runScan(
         : await runLegacyScan(mode, drive, onProgress, onItems)
 
     const enrichedItems = finalizeLocalScanItems(
-      enrichItemsWithDetectionHeuristics(result.items),
+      enrichItemsWithUserExperiences(
+        enrichItemsWithDetectionHeuristics(result.items),
+        getEnabledUserExperiences()
+      ),
       getProtectedPaths()
     )
     const session = createScanSession(drive, mode, getRulesVersion(), enrichedItems)

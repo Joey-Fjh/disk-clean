@@ -319,9 +319,10 @@
             </button>
             <div class="settings-card-body" id="settings-card-rules-body" hidden>
               <div class="settings-card-body-inner">
-                <section class="experience-placeholder" aria-disabled="true">
+                <section class="user-experience-section" id="user-experience-section">
                   <h3 class="provider-section-title">我的经验</h3>
-                  <p class="rules-status">即将支持保存排除项与软件特征，帮助你更快识别同类内容。</p>
+                  <p class="rules-status" id="user-experience-status">加载中…</p>
+                  <div id="user-experience-list" class="rules-list"></div>
                 </section>
                 <div class="sub-tab-bar" id="rules-knowledge-tabs" role="tablist" aria-label="规则与经验">
                   <button type="button" class="sub-tab active" role="tab" data-rules-knowledge-tab="packs" aria-selected="true">内置规则</button>
