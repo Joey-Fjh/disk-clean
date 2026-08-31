@@ -175,7 +175,7 @@ export async function measurePathSizeDetailed(
 
   try {
     if (isScanCancelled()) return { size: 0, incomplete: true }
-    return await measurePathDetailed(targetPath, maxDepth, controller.signal)
+    return await measurePathDetailed(targetPath, maxDepth, controller.signal, true)
   } finally {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', onParentAbort)

@@ -41,6 +41,26 @@ npm start          # 构建并打开 App
 | `npm run build` | 仅构建，不启动 |
 | `npm run typecheck` | TypeScript 类型检查 |
 | `npm test` | 运行测试 |
+| `npm run benchmark` | 扫描性能基准（合成目录） |
+
+## 安装（v0.1.0 RC）
+
+```powershell
+npm run pack   # 生成 release/Disk Clean-0.1.0-x64.exe
+```
+
+- NSIS 安装向导，可选安装目录
+- 未代码签名，SmartScreen 可能提示
+- 卸载不会清空回收站或删除用户文件
+
+## 首次使用
+
+| 场景 | 说明 |
+|------|------|
+| 无 API Key | 本地规则扫描 → 五类结果 → 勾选清理 → 回收站 → 自动复核 |
+| 有 API Key | 设置 → 模型连接 → 扫描后 Agent 分析，结果带来源标签 |
+| 保留经验 | 结果项「以后保留此项」→ 确认 → 下次扫描归入建议保留 |
+| 隐私 | 模型仅接收脱敏摘要，不含完整路径/用户名 |
 
 ## App 信息
 
@@ -85,12 +105,12 @@ npm start          # 构建并打开 App
 - **阶段 5A（已完成）**：只读调查工具、路径安全、调查状态机与会话缓存；详见 [PHASE-5A-REPORT.md](docs/PHASE-5A-REPORT.md)、[INVESTIGATION-TOOLS.md](docs/INVESTIGATION-TOOLS.md)
 - **阶段 5B（已完成）**：多轮编排与调查时间线；见上
 
-### 尚未实现（阶段 7，见路线图）
+### 阶段 7（v0.1 RC，待集中试用）
 
-- **阶段 7A（进行中）**：UI 与主流程集中调整 — 见 [UX-FLOW-v1.md](docs/UX-FLOW-v1.md)
-- 用户经验库（7B）
-- 扫描性能优化（7C）
-- 可安装 MVP 发布（7D）
+- **7A**：UI 与主流程 — [UX-FLOW-v1.md](docs/UX-FLOW-v1.md)、[PHASE-7A-REPORT.md](docs/PHASE-7A-REPORT.md)
+- **7B**：用户经验库 — [USER-EXPERIENCE-v1.md](docs/USER-EXPERIENCE-v1.md)
+- **7C**：扫描性能 — [PERFORMANCE-BASELINE.md](docs/PERFORMANCE-BASELINE.md)
+- **7D**：安装包 — [RELEASE-NOTES-v0.1.0.md](docs/RELEASE-NOTES-v0.1.0.md)
 
 ## 结果分类（当前 UI，阶段 4.2）
 
@@ -178,7 +198,9 @@ disk-clean/
 - 空间分析暂只到一级目录钻取（Users 下用户文件夹）
 - Chrome/Edge 多 Profile、微信/QQ 多账号路径仍可能不全
 - 扫描进度按规则条数计算，非按文件大小/耗时
-- 无 Agent；清理判断依赖规则定义；`full` 模式下规则解释仅为可选补充
+- 用户经验与识别提示（保留项已实现；识别提示 API 已就绪）
+- 跨扫描目录缓存未启用
+- 安装包未代码签名
 
 ## 文档
 

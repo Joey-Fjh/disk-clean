@@ -48,6 +48,7 @@ describe('rule knowledge settings renderer safety', () => {
         }
       ]),
       listRuleDrafts: vi.fn(async () => []),
+      listUserExperiences: vi.fn(async () => []),
       getSafetyPolicy: vi.fn(async () => ({
         protectedPaths: [],
         protectedLabels: {},

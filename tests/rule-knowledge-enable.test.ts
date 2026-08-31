@@ -76,6 +76,7 @@ describe('rule draft post-enable notice', () => {
         protectedLabels: {},
         constraints: []
       })),
+      listUserExperiences: vi.fn(async () => []),
       confirmEnableRuleDraft: vi.fn(async () => ({
         ok: true,
         message: '规则已启用，需要重新扫描后才能更新清理结果。',
