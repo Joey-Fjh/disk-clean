@@ -46,12 +46,45 @@ describe('ux flow render', () => {
     expect(el.querySelector('[data-step="analyze"] .task-pipeline-skip-note')?.textContent).toBe('已跳过')
   })
 
-  it('renders cleanup outcome panel with comparison detail', () => {
+  it('uses warning headline when rescan still finds executed items', () => {
     const panel = document.createElement('section')
-    renderCleanupOutcomePanel(panel, manifest(), '重扫对比：1 项已消失')
-    expect(panel.hidden).toBe(false)
-    expect(panel.querySelector('.cleanup-outcome-title')?.textContent).toBe('清理完成')
-    expect(panel.querySelector('.cleanup-outcome-comparison')?.textContent).toContain('重扫对比')
+    renderCleanupOutcomePanel(
+      panel,
+      manifest(),
+      '重扫对比：0 项已消失；1 项仍存在',
+      {
+        disappeared: [],
+        stillPresent: ['C:\\a'],
+        failed: [],
+        prepareRejected: [],
+        executionRejected: []
+      }
+    )
+    expect(panel.classList.contains('tone-partial')).toBe(true)
+    expect(panel.querySelector('.cleanup-outcome-title')?.textContent).toBe(
+      '清理已执行，复核发现项目仍存在'
+    )
+    expect(panel.textContent).toContain('项目可能已被程序重新生成')
+    expect(panel.querySelector('.cleanup-outcome-comparison')).toBeNull()
+    expect(panel.textContent).toContain('复核结果：0 项已消失，1 项仍存在')
+  })
+
+  it('renders success outcome without duplicate comparison paragraph', () => {
+    const panel = document.createElement('section')
+    renderCleanupOutcomePanel(
+      panel,
+      manifest(),
+      '重扫对比：1 项已消失',
+      {
+        disappeared: ['C:\\a'],
+        stillPresent: [],
+        failed: [],
+        prepareRejected: [],
+        executionRejected: []
+      }
+    )
+    expect(panel.querySelector('.cleanup-outcome-comparison')).toBeNull()
+    expect(panel.textContent).toContain('复核结果：1 项已消失，0 项仍存在')
   })
 
   it('clears outcome panel when manifest is null', () => {

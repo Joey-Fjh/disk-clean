@@ -7,19 +7,14 @@ import {
   resolvePipelineStepState,
   shouldShowTaskPipeline,
   UX_PIPELINE_STEPS,
+  type ReviewStepOutcome,
   type UxPipelineStepId
 } from '../shared/ux-flow-model'
-import type { CleanupOutcomeManifest } from './cleanup-result-state'
-
-function toOutcomeSummary(manifest: CleanupOutcomeManifest) {
-  return {
-    moved: manifest.result.moved,
-    movedToTrashBytes: manifest.result.movedToTrashBytes,
-    prepareRejectedCount: manifest.prepareRejected.length,
-    executionFailedCount: manifest.executionFailed.length,
-    executionRejectedCount: manifest.executionRejected.length
-  }
-}
+import {
+  buildCleanupOutcomeSummaryInput,
+  type CleanupOutcomeManifest,
+  type CleanupRescanComparison
+} from './cleanup-result-state'
 
 export function renderTaskPipeline(
   container: HTMLElement,
@@ -29,6 +24,7 @@ export function renderTaskPipeline(
     hasScanResults: boolean
     milestone?: UxPipelineStepId | null
     analyzeSkipped?: boolean
+    reviewOutcome?: ReviewStepOutcome
   }
 ): void {
   if (!shouldShowTaskPipeline(input)) {
@@ -55,7 +51,8 @@ export function renderTaskPipeline(
       activeStep,
       phase: input.phase,
       milestone: input.milestone,
-      analyzeSkipped: input.analyzeSkipped
+      analyzeSkipped: input.analyzeSkipped,
+      reviewOutcome: input.reviewOutcome
     })
 
     const item = document.createElement('li')
@@ -80,6 +77,16 @@ export function renderTaskPipeline(
       skipNote.className = 'task-pipeline-skip-note'
       skipNote.textContent = '已跳过'
       item.appendChild(skipNote)
+    } else if (state === 'stopped') {
+      const stopNote = document.createElement('span')
+      stopNote.className = 'task-pipeline-skip-note'
+      stopNote.textContent = '已停止'
+      item.appendChild(stopNote)
+    } else if (state === 'failed') {
+      const failNote = document.createElement('span')
+      failNote.className = 'task-pipeline-skip-note'
+      failNote.textContent = '未完成'
+      item.appendChild(failNote)
     }
     list.appendChild(item)
   }
@@ -90,7 +97,8 @@ export function renderTaskPipeline(
 export function renderCleanupOutcomePanel(
   panel: HTMLElement,
   manifest: CleanupOutcomeManifest | null,
-  comparisonDetail?: string
+  comparisonDetail?: string,
+  comparison?: CleanupRescanComparison
 ): void {
   if (!manifest) {
     panel.hidden = true
@@ -98,18 +106,19 @@ export function renderCleanupOutcomePanel(
     return
   }
 
-  const tone = resolveCleanupOutcomeTone(toOutcomeSummary(manifest))
+  const summary = buildCleanupOutcomeSummaryInput(manifest, comparison)
+  const tone = resolveCleanupOutcomeTone(summary)
   panel.hidden = false
   panel.className = `cleanup-outcome-panel tone-${tone}`
   panel.replaceChildren()
 
   const title = document.createElement('h3')
   title.className = 'cleanup-outcome-title'
-  title.textContent = buildCleanupOutcomeHeadline(toOutcomeSummary(manifest))
+  title.textContent = buildCleanupOutcomeHeadline(summary)
 
   const list = document.createElement('ul')
   list.className = 'cleanup-outcome-details'
-  for (const line of buildCleanupOutcomeDetailLines(toOutcomeSummary(manifest))) {
+  for (const line of buildCleanupOutcomeDetailLines(summary)) {
     const li = document.createElement('li')
     li.textContent = line
     list.appendChild(li)
@@ -117,11 +126,11 @@ export function renderCleanupOutcomePanel(
 
   panel.append(title, list)
 
-  if (comparisonDetail) {
-    const comparison = document.createElement('p')
-    comparison.className = 'cleanup-outcome-comparison'
-    comparison.textContent = comparisonDetail
-    panel.appendChild(comparison)
+  if (comparisonDetail && !comparison) {
+    const comparisonEl = document.createElement('p')
+    comparisonEl.className = 'cleanup-outcome-comparison'
+    comparisonEl.textContent = comparisonDetail
+    panel.appendChild(comparisonEl)
   }
 
   const failedPaths = [

@@ -167,4 +167,22 @@ describe('ux flow lifecycle dom', () => {
     expect(bar?.getAttribute('aria-valuenow')).toBe('42')
     expect(bar?.getAttribute('aria-valuetext')).toBe('42%')
   })
+
+  it('marks review done after post-rescan completion phase', () => {
+    const pipeline = new TaskPipelineState()
+    pipeline.advance('scan')
+    pipeline.markAnalyzeSkipped()
+    pipeline.advance('suggest')
+    pipeline.advance('execute')
+    pipeline.advance('review')
+
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: pipeline.getMilestone(),
+        analyzeSkipped: pipeline.isAnalyzeSkipped()
+      })
+    ).toBe('done')
+  })
 })

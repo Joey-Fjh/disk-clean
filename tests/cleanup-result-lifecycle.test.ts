@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCleanupOutcomeManifest,
+  buildCleanupOutcomeSummaryInput,
   buildCleanupRescanComparison,
   formatCleanupOutcomeSummary,
   formatCleanupRescanComparison
 } from '../src/renderer/cleanup-result-state'
+import {
+  buildCleanupOutcomeHeadline,
+  resolveCleanupOutcomeTone
+} from '../src/shared/ux-flow-model'
 import type { CleanupResult, ScanItem } from '../src/shared/types'
 
 function baseResult(overrides: Partial<CleanupResult> = {}): CleanupResult {
@@ -125,6 +130,46 @@ describe('cleanup result lifecycle', () => {
     const comparison = buildCleanupRescanComparison(manifest, afterItems)
     expect(comparison.stillPresent).toEqual(['C:\\stay'])
     expect(formatCleanupRescanComparison(comparison)).toContain('1 项仍存在')
+  })
+
+  it('builds warning outcome summary when rescan still finds executed paths', () => {
+    const manifest = buildCleanupOutcomeManifest({
+      sessionId: 's1',
+      selectedItems: [{ id: 'c1', path: 'C:\\stay' }],
+      preview: { approvedCandidateIds: ['c1'], rejectedAtPrepare: [] },
+      result: baseResult({ succeeded: ['C:\\stay'] })
+    })
+    const comparison = buildCleanupRescanComparison(manifest, [
+      {
+        id: 'stay',
+        ruleId: 'r',
+        ruleName: 'R',
+        category: 'safe',
+        contentType: 'app-cache',
+        drive: 'C:',
+        path: 'C:\\stay',
+        size: 50,
+        sizeIsEstimate: true,
+        snapshotComplete: true,
+        entryKind: 'file',
+        deletable: false,
+        autoSelect: false,
+        source: 'rule',
+        discoverySources: ['rule'],
+        evidence: [],
+        judgment: {
+          status: 'suggested',
+          source: 'rule',
+          confidence: 'high',
+          basis: []
+        },
+        selection: { selectable: true },
+        suggestedAction: 'recycle'
+      }
+    ])
+    const summary = buildCleanupOutcomeSummaryInput(manifest, comparison)
+    expect(resolveCleanupOutcomeTone(summary)).toBe('partial')
+    expect(buildCleanupOutcomeHeadline(summary)).toBe('清理已执行，复核发现项目仍存在')
   })
 
   it('tracks execution failures without treating them as rescan disappeared', () => {

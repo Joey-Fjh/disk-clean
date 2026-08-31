@@ -35,6 +35,8 @@ import {
   buildCleanupRescanComparison,
   formatCleanupOutcomeSummary,
   formatCleanupRescanComparison,
+  type CleanupOutcomeManifest,
+  type CleanupRescanComparison
 } from './cleanup-result-state'
 import {
   applyPostCleanupRescanFailure,
@@ -99,7 +101,15 @@ import {
   renderTaskPipeline
 } from './ux-flow-render'
 import { TaskPipelineState, applyResultsReadyPipeline } from './task-pipeline-state'
-import { resolveInteractiveTaskRecovery, resolveScanFailureRecovery } from './task-ui-recovery'
+import {
+  beginScanPresentationCycle,
+  presentPendingFinalResults,
+  queuePendingFinalResults,
+  resolveInteractiveTaskRecovery,
+  resolveResultCategoryOrder,
+  resolveScanFailureRecovery,
+  runScanTeardown
+} from './task-ui-recovery'
 
 const tabs = document.querySelectorAll<HTMLButtonElement>('.tab')
 const panels = document.querySelectorAll<HTMLElement>('.tab-panel')
@@ -273,7 +283,8 @@ function refreshTaskProgressUi(discoveredCount = scanResult?.items.length ?? 0):
     scanning,
     hasScanResults: Boolean(scanResult && scanResult.items.length > 0),
     milestone: taskPipelineState.getMilestone(),
-    analyzeSkipped: taskPipelineState.isAnalyzeSkipped()
+    analyzeSkipped: taskPipelineState.isAnalyzeSkipped(),
+    reviewOutcome: taskPipelineState.getReviewOutcome()
   })
   const barMode = resolveProgressBarMode({
     scanning,
@@ -294,12 +305,60 @@ function restoreInteractiveTaskState(itemCount: number, phase: ScanTaskPhase = '
   refreshTaskProgressUi(itemCount)
 }
 
-function showFinalResults(items: ScanItem[], phase: ScanTaskPhase = 'completed'): void {
+function showFinalResults(
+  items: ScanItem[],
+  phase: ScanTaskPhase = 'completed',
+  options: {
+    advanceSuggest?: boolean
+    outcomeManifest?: CleanupOutcomeManifest | null
+    rescanComparison?: CleanupRescanComparison
+  } = {}
+): void {
+  if (renderTimer !== null) {
+    window.clearTimeout(renderTimer)
+    renderTimer = null
+  }
+  lastDiscoveryRenderCount = 0
+  lastResultStructureKey = null
   scanTaskPhase = phase
-  taskPipelineState.advance('suggest')
+  progress.hidden = true
+  if (options.advanceSuggest !== false) {
+    taskPipelineState.advance('suggest')
+  }
+  candidateSelection.reconcileFinalItems(items, getDefaultChecked)
+  if (options.outcomeManifest) {
+    renderCleanupOutcomePanel(
+      cleanupOutcomePanel,
+      options.outcomeManifest,
+      undefined,
+      options.rescanComparison
+    )
+  }
   refreshTaskProgressUi(items.length)
   preservePanelScrollTop(panelClean, () => renderCategories(items))
   updateSelectedSummary()
+}
+
+function queueFinalResults(
+  items: ScanItem[],
+  phase: ScanTaskPhase = 'completed',
+  options: {
+    presentationGeneration: number
+    sessionId?: string
+    advanceSuggest?: boolean
+    outcomeManifest?: CleanupOutcomeManifest | null
+    rescanComparison?: CleanupRescanComparison
+  }
+): void {
+  queuePendingFinalResults({
+    items,
+    phase,
+    presentationGeneration: options.presentationGeneration,
+    sessionId: options.sessionId,
+    advanceSuggest: options.advanceSuggest,
+    outcomeManifest: options.outcomeManifest,
+    rescanComparison: options.rescanComparison
+  })
 }
 
 function updateScanTaskStatus(discoveredCount = 0): void {
@@ -457,7 +516,7 @@ function setScanning(active: boolean): void {
   }
 }
 
-function finishScan(result: ScanResult): void {
+function finishScan(result: ScanResult, presentationGeneration: number): void {
   scanResult = result
   const { items, errors, cancelled, drive } = result
   scanTaskPhase = cancelled ? 'cancelled' : 'organizing'
@@ -479,12 +538,17 @@ function finishScan(result: ScanResult): void {
   const driveLabel = drive === 'all' ? '全部磁盘' : `${drive} 盘`
   if (isPostCleanupRescanActive(postCleanupRescanSession)) {
     if (cancelled) {
+      const manifest = postCleanupRescanSession.pendingCleanupOutcome
       postCleanupRescanSession = applyPostCleanupRescanFinish(postCleanupRescanSession, { cancelled: true })
       skipAutoAgentForCurrentScan = false
       syncPersistentCleanupStatus()
       refreshRescanRetryButton()
-      taskPipelineState.advance('review')
-      showFinalResults(items, 'completed')
+      taskPipelineState.markReviewStopped()
+      queueFinalResults(items, 'completed', {
+        presentationGeneration,
+        advanceSuggest: false,
+        outcomeManifest: manifest ?? undefined
+      })
       return
     }
     if (postCleanupRescanSession.pendingCleanupOutcome && postCleanupRescanSession.cleanupOutcomeSummary) {
@@ -495,21 +559,30 @@ function finishScan(result: ScanResult): void {
         cancelled: false,
         comparisonDetail
       })
-      renderCleanupOutcomePanel(cleanupOutcomePanel, manifest, comparisonDetail)
-    } else {
-      postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
+      taskPipelineState.completeReview()
+      skipAutoAgentForCurrentScan = false
+      syncPersistentCleanupStatus()
+      refreshRescanRetryButton()
+      queueFinalResults(items, 'completed', {
+        presentationGeneration,
+        advanceSuggest: false,
+        outcomeManifest: manifest,
+        rescanComparison: comparison
+      })
+      return
     }
+    postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
     skipAutoAgentForCurrentScan = false
     syncPersistentCleanupStatus()
     refreshRescanRetryButton()
-    taskPipelineState.advance('review')
-    showFinalResults(items, 'completed')
+    taskPipelineState.completeReview()
+    queueFinalResults(items, 'completed', { presentationGeneration, advanceSuggest: false })
     return
   }
 
   if (cancelled) {
     statusText.textContent = `${driveLabel} · 扫描已停止 · 保留 ${items.length} 项结果`
-    showFinalResults(items, 'cancelled')
+    queueFinalResults(items, 'cancelled', { presentationGeneration })
     return
   }
 
@@ -546,7 +619,14 @@ function finishScan(result: ScanResult): void {
           () => refreshTaskProgressUi(items.length)
         )
       }
-      showFinalResults(items, cancelled ? 'cancelled' : 'completed')
+      queueFinalResults(items, cancelled ? 'cancelled' : 'completed', { presentationGeneration })
+      presentPendingFinalResults((pending) => {
+        showFinalResults(pending.items, pending.phase, {
+          advanceSuggest: pending.advanceSuggest,
+          outcomeManifest: pending.outcomeManifest,
+          rescanComparison: pending.rescanComparison
+        })
+      })
     })()
   }
 }
@@ -669,11 +749,13 @@ function updateSelectedSummary(): void {
 }
 
 function renderCategories(items: ScanItem[]): void {
-  if (!shouldShowFinalResultCategories({
-    scanning,
-    phase: scanTaskPhase,
-    agentReviewing: isAgentReviewing()
-  })) {
+  if (
+    !shouldShowFinalResultCategories({
+      scanning,
+      phase: scanTaskPhase,
+      agentReviewing: isAgentReviewing()
+    })
+  ) {
     if (scanning) renderScanningDiscoveries(items)
     return
   }
@@ -720,11 +802,10 @@ function renderCategories(items: ScanItem[]): void {
     return
   }
 
-  const order = CLEANUP_DISPLAY_CATEGORY_ORDER.filter((cat) => {
-    if (cat === 'identifying' || cat === 'analyzing') {
-      return scanning || isAgentReviewing()
-    }
-    return true
+  const order = resolveResultCategoryOrder({
+    scanning,
+    agentReviewing: isAgentReviewing(),
+    allCategories: CLEANUP_DISPLAY_CATEGORY_ORDER
   })
   const grouped = groupItemsByDisplayCategory(items, { agentReviewing: isAgentReviewing() })
 
@@ -951,6 +1032,7 @@ async function startPostCleanupRescan(): Promise<void> {
   const options = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
   if (!options) return
   postCleanupRescanSession = reducePostCleanupRescanSession(postCleanupRescanSession, { type: 'retry-rescan' })
+  taskPipelineState.beginReview()
   scanTaskPhase = 'rescanning'
   progress.hidden = false
   refreshTaskProgressUi(scanResult?.items.length ?? 0)
@@ -1012,6 +1094,8 @@ async function startScan(
     taskPipelineState.reset()
   }
 
+  const presentationGeneration = beginScanPresentationCycle()
+
   setScanning(true)
   scanTaskPhase = isPostCleanupRescan ? 'rescanning' : 'scanning'
   updateScanTaskStatus(0)
@@ -1064,32 +1148,54 @@ async function startScan(
 
   try {
     const result = await window.diskClean.startScan({ drive })
-    finishScan(result)
+    finishScan(result, presentationGeneration)
   } catch (err) {
-    const isRescanFailure = isPostCleanupRescanActive(postCleanupRescanSession)
-    if (isRescanFailure && postCleanupRescanSession.cleanupOutcomeSummary) {
+    const wasRescanning = isPostCleanupRescanActive(postCleanupRescanSession)
+    if (wasRescanning && postCleanupRescanSession.cleanupOutcomeSummary) {
+      const manifest = postCleanupRescanSession.pendingCleanupOutcome
       postCleanupRescanSession = applyPostCleanupRescanFailure(
         postCleanupRescanSession,
         err instanceof Error ? err.message : String(err)
       )
+      taskPipelineState.markReviewFailed()
       syncPersistentCleanupStatus()
       refreshRescanRetryButton()
+      scanTaskPhase = 'completed'
+      if (manifest) {
+        queueFinalResults(accumulatedItems, 'completed', {
+          presentationGeneration,
+          advanceSuggest: false,
+          outcomeManifest: manifest
+        })
+      }
     } else {
       statusText.textContent = `扫描失败：${err instanceof Error ? err.message : String(err)}`
+      const failureRecovery = resolveScanFailureRecovery(false)
+      scanTaskPhase = failureRecovery.phase
+      scanFailureItemCount = accumulatedItems.length
     }
-    const failureRecovery = resolveScanFailureRecovery(isRescanFailure)
-    scanTaskPhase = failureRecovery.phase
-    scanFailureItemCount = accumulatedItems.length
   } finally {
     postCleanupRescanSession = markPostCleanupRescanIdle(postCleanupRescanSession)
     refreshRescanRetryButton()
     unsubscribeProgress()
     unsubscribeItems()
-    setScanning(false)
+    const failureItemCount = scanFailureItemCount
+    runScanTeardown({
+      setScanning,
+      scanFailed: failureItemCount !== null,
+      presentFinalResults: (pending) => {
+        showFinalResults(pending.items, pending.phase, {
+          advanceSuggest: pending.advanceSuggest,
+          outcomeManifest: pending.outcomeManifest,
+          rescanComparison: pending.rescanComparison
+        })
+      },
+      refreshFailureUi: () => {
+        progress.hidden = true
+        refreshTaskProgressUi(failureItemCount ?? 0)
+      }
+    })
     lastScanProgress = null
-    if (scanFailureItemCount !== null) {
-      refreshTaskProgressUi(scanFailureItemCount)
-    }
   }
 }
 
@@ -1192,6 +1298,11 @@ async function cleanSelected(): Promise<void> {
   })
   syncPersistentCleanupStatus()
   refreshRescanRetryButton()
+  candidateSelection.setMany(
+    selected.map((item) => item.id),
+    false
+  )
+  updateSelectedSummary()
   const rescanOptions = buildPostCleanupRescanScanOptions(postCleanupRescanSession)
   if (rescanOptions) {
     scanTaskPhase = 'rescanning'

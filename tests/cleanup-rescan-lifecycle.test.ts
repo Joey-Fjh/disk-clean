@@ -63,14 +63,15 @@ describe('post-cleanup rescan lifecycle', () => {
   it('formats rescan-failed without discarding cleanup summary', () => {
     const line = formatPostCleanupRescanStatus('rescan-failed', baseSummary, 'network error')
     expect(line).toContain(baseSummary)
-    expect(line).toContain('清理已完成，重扫失败')
+    expect(line).toContain('自动复核失败')
+    expect(line).toContain('请重新复核')
     expect(line).toContain('network error')
   })
 
   it('formats rescan-cancelled without discarding cleanup summary', () => {
     const line = formatPostCleanupRescanStatus('rescan-cancelled', baseSummary)
     expect(line).toContain(baseSummary)
-    expect(line).toContain('清理已完成，重扫已停止')
+    expect(line).toContain('自动复核已停止，请重新复核')
   })
 
   it('only applies comparison on rescan-completed', () => {
@@ -161,7 +162,7 @@ describe('post-cleanup rescan controller lifecycle', () => {
     expect(session.state).toBe('rescan-cancelled')
     expect(session.pendingCleanupOutcome).not.toBeNull()
     expect(shouldApplyPostCleanupRescanComparison(session.state)).toBe(false)
-    expect(resolvePersistentCleanupStatusText(session)).toContain('重扫已停止')
+    expect(resolvePersistentCleanupStatusText(session)).toContain('自动复核已停止')
   })
 
   it('retry after cancellation can complete comparison', () => {

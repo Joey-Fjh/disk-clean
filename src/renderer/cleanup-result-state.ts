@@ -1,4 +1,5 @@
 import { normalizeScanPath } from '../shared/scan-path'
+import type { CleanupOutcomeSummaryInput } from '../shared/ux-flow-model'
 import type { CleanupPlanPreview, CleanupResult, ScanItem } from '../shared/types'
 
 export interface CleanupPrepareRejectionRecord {
@@ -132,6 +133,22 @@ export function buildCleanupRescanComparison(
     failed: manifest.executionFailed.map((entry) => entry.path),
     prepareRejected: manifest.prepareRejected.map((entry) => entry.path),
     executionRejected: manifest.executionRejected.map((entry) => entry.path)
+  }
+}
+
+export function buildCleanupOutcomeSummaryInput(
+  manifest: CleanupOutcomeManifest,
+  comparison?: CleanupRescanComparison
+): CleanupOutcomeSummaryInput {
+  return {
+    moved: manifest.result.moved,
+    movedToTrashBytes: manifest.result.movedToTrashBytes,
+    prepareRejectedCount: manifest.prepareRejected.length,
+    executionFailedCount: manifest.executionFailed.length,
+    executionRejectedCount: manifest.executionRejected.length,
+    hasRescanComparison: comparison !== undefined,
+    rescanDisappearedCount: comparison?.disappeared.length,
+    rescanStillPresentCount: comparison?.stillPresent.length
   }
 }
 

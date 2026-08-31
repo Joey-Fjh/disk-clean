@@ -8,6 +8,9 @@ export interface CleanupOutcomeSummaryInput {
   prepareRejectedCount: number
   executionFailedCount: number
   executionRejectedCount: number
+  hasRescanComparison?: boolean
+  rescanDisappearedCount?: number
+  rescanStillPresentCount?: number
 }
 
 /** 主流程步骤（7A 用户可见流水线）。 */
@@ -21,7 +24,9 @@ export const UX_PIPELINE_STEPS = [
 
 export type UxPipelineStepId = (typeof UX_PIPELINE_STEPS)[number]['id']
 
-export type UxPipelineStepState = 'pending' | 'active' | 'done' | 'skipped'
+export type UxPipelineStepState = 'pending' | 'active' | 'done' | 'skipped' | 'stopped' | 'failed'
+
+export type ReviewStepOutcome = 'none' | 'done' | 'stopped' | 'failed'
 
 export type UserFacingJudgmentSource =
   | '本地规则'
@@ -95,8 +100,14 @@ export function resolvePipelineStepState(
     phase: CleanupTaskPhase
     milestone?: UxPipelineStepId | null
     analyzeSkipped?: boolean
+    reviewOutcome?: ReviewStepOutcome
   }
 ): UxPipelineStepState {
+  if (stepId === 'review') {
+    if (input.reviewOutcome === 'stopped') return 'stopped'
+    if (input.reviewOutcome === 'failed') return 'failed'
+  }
+
   const order = UX_PIPELINE_STEPS.map((step) => step.id)
   const stepIndex = order.indexOf(stepId)
   const milestoneIndex =
@@ -151,17 +162,34 @@ export function resolveProgressBarMode(input: {
 
 export type CleanupOutcomeTone = 'success' | 'partial' | 'failed'
 
+function hasRescanStillPresent(input: CleanupOutcomeSummaryInput): boolean {
+  return input.hasRescanComparison === true && (input.rescanStillPresentCount ?? 0) > 0
+}
+
 export function resolveCleanupOutcomeTone(input: CleanupOutcomeSummaryInput): CleanupOutcomeTone {
   const moved = input.moved
   const failed = input.prepareRejectedCount + input.executionFailedCount + input.executionRejectedCount
-  if (moved > 0 && failed === 0) return 'success'
+  if (moved > 0 && failed === 0) {
+    if (hasRescanStillPresent(input)) return 'partial'
+    return 'success'
+  }
   if (moved > 0 && failed > 0) return 'partial'
   if (moved === 0 && failed > 0) return 'failed'
   return moved > 0 ? 'success' : 'failed'
 }
 
 export function buildCleanupOutcomeHeadline(input: CleanupOutcomeSummaryInput): string {
+  const failed =
+    input.prepareRejectedCount + input.executionFailedCount + input.executionRejectedCount
   const tone = resolveCleanupOutcomeTone(input)
+
+  if (failed > 0) {
+    if (tone === 'failed') return '清理未成功'
+    return '部分项目已移入回收站'
+  }
+  if (hasRescanStillPresent(input) && input.moved > 0) {
+    return '清理已执行，复核发现项目仍存在'
+  }
   if (tone === 'success') return '清理完成'
   if (tone === 'partial') return '部分项目已移入回收站'
   return '清理未成功'
@@ -179,6 +207,14 @@ export function buildCleanupOutcomeDetailLines(input: CleanupOutcomeSummaryInput
   }
   if (input.executionRejectedCount > 0) {
     lines.push(`执行校验拒绝 ${input.executionRejectedCount} 项`)
+  }
+  if (input.hasRescanComparison) {
+    lines.push(
+      `复核结果：${input.rescanDisappearedCount ?? 0} 项已消失，${input.rescanStillPresentCount ?? 0} 项仍存在`
+    )
+    if (hasRescanStillPresent(input)) {
+      lines.push('项目可能已被程序重新生成，或未能完全移除。')
+    }
   }
   lines.push('文件在回收站中仍占用磁盘空间，清空回收站后才会释放')
   return lines

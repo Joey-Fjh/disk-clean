@@ -14,9 +14,9 @@ export function formatPostCleanupRescanStatus(
     case 'rescan-completed':
       return detail ? `${cleanupSummary} · ${detail}` : cleanupSummary
     case 'rescan-failed':
-      return `${cleanupSummary} · 清理已完成，重扫失败${detail ? `：${detail}` : ''}`
+      return `${cleanupSummary} · 自动复核失败${detail ? `：${detail}` : ''}，请重新复核`
     case 'rescan-cancelled':
-      return `${cleanupSummary} · 清理已完成，重扫已停止`
+      return `${cleanupSummary} · 自动复核已停止，请重新复核`
     case 'rescanning':
       return `${cleanupSummary} · 正在重新扫描以复核清理结果…`
     default:

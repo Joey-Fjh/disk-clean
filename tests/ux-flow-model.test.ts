@@ -3,6 +3,7 @@ import {
   buildCleanupOutcomeDetailLines,
   buildCleanupOutcomeHeadline,
   resolveActivePipelineStep,
+  resolveCleanupOutcomeTone,
   resolvePipelineStepState,
   resolveProgressBarMode,
   resolveUserFacingJudgmentSource,
@@ -141,6 +142,85 @@ describe('ux flow model', () => {
     expect(buildCleanupOutcomeDetailLines(input).some((line) => line.includes('回收站'))).toBe(true)
   })
 
+  it('uses warning headline when rescan still finds executed items', () => {
+    const input = {
+      moved: 1,
+      movedToTrashBytes: 100,
+      prepareRejectedCount: 0,
+      executionFailedCount: 0,
+      executionRejectedCount: 0,
+      hasRescanComparison: true,
+      rescanDisappearedCount: 0,
+      rescanStillPresentCount: 1
+    }
+    expect(buildCleanupOutcomeHeadline(input)).toBe('清理已执行，复核发现项目仍存在')
+    expect(buildCleanupOutcomeDetailLines(input)).toContain(
+      '项目可能已被程序重新生成，或未能完全移除。'
+    )
+  })
+
+  it('keeps success headline when all executed items disappear after rescan', () => {
+    const input = {
+      moved: 1,
+      movedToTrashBytes: 100,
+      prepareRejectedCount: 0,
+      executionFailedCount: 0,
+      executionRejectedCount: 0,
+      hasRescanComparison: true,
+      rescanDisappearedCount: 1,
+      rescanStillPresentCount: 0
+    }
+    expect(buildCleanupOutcomeHeadline(input)).toBe('清理完成')
+  })
+
+  it('keeps execution failure headline when rescan still finds other items', () => {
+    const input = {
+      moved: 1,
+      movedToTrashBytes: 100,
+      prepareRejectedCount: 0,
+      executionFailedCount: 1,
+      executionRejectedCount: 0,
+      hasRescanComparison: true,
+      rescanDisappearedCount: 0,
+      rescanStillPresentCount: 1
+    }
+    expect(buildCleanupOutcomeHeadline(input)).toBe('部分项目已移入回收站')
+    expect(resolveCleanupOutcomeTone(input)).toBe('partial')
+    expect(buildCleanupOutcomeDetailLines(input)).toContain('执行失败 1 项')
+    expect(buildCleanupOutcomeDetailLines(input)).toContain(
+      '复核结果：0 项已消失，1 项仍存在'
+    )
+  })
+
+  it('marks review stopped when auto review is cancelled', () => {
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: 'execute',
+        reviewOutcome: 'stopped'
+      })
+    ).toBe('stopped')
+    expect(
+      resolvePipelineStepState('execute', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: 'execute',
+        reviewOutcome: 'stopped'
+      })
+    ).toBe('done')
+  })
+
+  it('marks review failed when auto review errors', () => {
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: 'execute',
+        reviewOutcome: 'failed'
+      })
+    ).toBe('failed')
+  })
   it('limits extension entry to space occupancy category', () => {
     expect(shouldShowExtensionEntryForCategory('space-occupancy')).toBe(true)
     expect(shouldShowExtensionEntryForCategory('caution-clean')).toBe(false)

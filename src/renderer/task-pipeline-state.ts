@@ -1,13 +1,19 @@
 import type { AgentAnalysisStatus } from '../shared/agent-types'
-import { UX_PIPELINE_STEPS, type UxPipelineStepId } from '../shared/ux-flow-model'
+import {
+  UX_PIPELINE_STEPS,
+  type ReviewStepOutcome,
+  type UxPipelineStepId
+} from '../shared/ux-flow-model'
 
 export class TaskPipelineState {
   private milestone: UxPipelineStepId | null = null
   private analyzeSkipped = false
+  private reviewOutcome: ReviewStepOutcome = 'none'
 
   reset(): void {
     this.milestone = null
     this.analyzeSkipped = false
+    this.reviewOutcome = 'none'
   }
 
   markAnalyzeSkipped(): void {
@@ -23,12 +29,33 @@ export class TaskPipelineState {
     }
   }
 
+  completeReview(): void {
+    this.advance('review')
+    this.reviewOutcome = 'done'
+  }
+
+  beginReview(): void {
+    this.reviewOutcome = 'none'
+  }
+
+  markReviewStopped(): void {
+    this.reviewOutcome = 'stopped'
+  }
+
+  markReviewFailed(): void {
+    this.reviewOutcome = 'failed'
+  }
+
   getMilestone(): UxPipelineStepId | null {
     return this.milestone
   }
 
   isAnalyzeSkipped(): boolean {
     return this.analyzeSkipped
+  }
+
+  getReviewOutcome(): ReviewStepOutcome {
+    return this.reviewOutcome
   }
 }
 

@@ -6,9 +6,24 @@ import {
   resetAgentAnalysisUi
 } from '../src/renderer/agent-analysis'
 import { createAgentAnalysisSessionCallbacks } from '../src/renderer/agent-session-lifecycle'
+import {
+  applyPostCleanupRescanFailure,
+  applyPostCleanupRescanFinish,
+  beginPostCleanupRescanSession,
+  canRetryPostCleanupRescan,
+  createPostCleanupRescanSession,
+  reducePostCleanupRescanSession
+} from '../src/renderer/post-cleanup-rescan-controller'
 import { resolveScanProgressTaskPhase } from '../src/renderer/scan-task-state'
 import { applyResultsReadyPipeline, TaskPipelineState } from '../src/renderer/task-pipeline-state'
-import { resolveScanFailureRecovery } from '../src/renderer/task-ui-recovery'
+import {
+  beginScanPresentationCycle,
+  presentPendingFinalResults,
+  queuePendingFinalResults,
+  resetScanPresentationState,
+  resolveScanFailureRecovery,
+  runScanTeardown
+} from '../src/renderer/task-ui-recovery'
 import {
   applyProgressBarMode,
   renderTaskPipeline
@@ -21,6 +36,7 @@ import {
 } from '../src/shared/ux-flow-model'
 import type { ScanTaskPhase } from '../src/shared/cleanup-task-model'
 import type { ScanItem, ScanResult } from '../src/shared/types'
+import { CandidateSelectionViewState } from '../src/renderer/candidate-selection-state'
 
 function mockItem(): ScanItem {
   return {
@@ -376,5 +392,284 @@ describe('scan lifecycle integration', () => {
 
     progress.remove()
     pipeline.remove()
+  })
+
+  it('presents final results only after scanning is cleared in teardown', () => {
+    resetScanPresentationState()
+    const presentationGeneration = beginScanPresentationCycle()
+    let scanning = true
+    let presentCount = 0
+    let presentedWhileScanning: boolean | null = null
+
+    queuePendingFinalResults({
+      items: [mockItem()],
+      phase: 'completed',
+      presentationGeneration
+    })
+
+    runScanTeardown({
+      setScanning: (value) => {
+        scanning = value
+      },
+      presentFinalResults: () => {
+        presentCount += 1
+        presentedWhileScanning = scanning
+      },
+      scanFailed: false
+    })
+
+    expect(scanning).toBe(false)
+    expect(presentCount).toBe(1)
+    expect(presentedWhileScanning).toBe(false)
+  })
+
+  it('presents final results once when teardown flushes pending queue', () => {
+    resetScanPresentationState()
+    const presentationGeneration = beginScanPresentationCycle()
+    let presentCount = 0
+
+    queuePendingFinalResults({
+      items: [mockItem()],
+      phase: 'completed',
+      presentationGeneration
+    })
+
+    runScanTeardown({
+      setScanning: () => {},
+      presentFinalResults: () => {
+        presentCount += 1
+      },
+      scanFailed: false
+    })
+
+    expect(presentCount).toBe(1)
+
+    runScanTeardown({
+      setScanning: () => {},
+      presentFinalResults: () => {
+        presentCount += 1
+      },
+      scanFailed: false
+    })
+
+    expect(presentCount).toBe(1)
+  })
+
+  it('presents queued results after scan ends when planning finishes later', () => {
+    resetScanPresentationState()
+    const presentationGeneration = beginScanPresentationCycle()
+    let scanning = true
+    let presentCount = 0
+
+    runScanTeardown({
+      setScanning: (value) => {
+        scanning = value
+      },
+      presentFinalResults: () => {
+        presentCount += 1
+      },
+      scanFailed: false
+    })
+    expect(scanning).toBe(false)
+    expect(presentCount).toBe(0)
+
+    queuePendingFinalResults({
+      items: [mockItem()],
+      phase: 'completed',
+      presentationGeneration
+    })
+    presentPendingFinalResults(() => {
+      presentCount += 1
+    })
+    expect(presentCount).toBe(1)
+  })
+
+  it('drops stale planning results after the next scan begins', () => {
+    resetScanPresentationState()
+    let presentCount = 0
+    const present = () => {
+      presentCount += 1
+    }
+
+    const scanAGeneration = beginScanPresentationCycle()
+    runScanTeardown({
+      setScanning: () => {},
+      presentFinalResults: present,
+      scanFailed: false
+    })
+    expect(presentCount).toBe(0)
+
+    const scanBGeneration = beginScanPresentationCycle()
+    expect(scanBGeneration).toBeGreaterThan(scanAGeneration)
+
+    expect(
+      queuePendingFinalResults({
+        items: [mockItem()],
+        phase: 'completed',
+        presentationGeneration: scanAGeneration
+      })
+    ).toBe(false)
+    expect(presentPendingFinalResults(present)).toBe(false)
+    expect(presentCount).toBe(0)
+
+    queuePendingFinalResults({
+      items: [mockItem()],
+      phase: 'completed',
+      presentationGeneration: scanBGeneration
+    })
+    runScanTeardown({
+      setScanning: () => {},
+      presentFinalResults: present,
+      scanFailed: false
+    })
+    expect(presentCount).toBe(1)
+  })
+
+  it('refreshes failure UI after teardown when scan failed without pending results', () => {
+    resetScanPresentationState()
+    let refreshCount = 0
+
+    runScanTeardown({
+      setScanning: () => {},
+      presentFinalResults: () => {},
+      refreshFailureUi: () => {
+        refreshCount += 1
+      },
+      scanFailed: true
+    })
+
+    expect(refreshCount).toBe(1)
+  })
+
+  it('clears executed selection before automatic rescan starts', () => {
+    const selection = new CandidateSelectionViewState()
+    selection.select('item-1')
+    selection.select('item-2')
+    selection.setMany(['item-1'], false)
+    expect(selection.isSelected('item-1')).toBe(false)
+    expect(selection.isSelected('item-2')).toBe(true)
+  })
+
+  it('keeps review incomplete after auto review cancel and allows retry', () => {
+    const pipeline = new TaskPipelineState()
+    pipeline.advance('scan')
+    pipeline.markAnalyzeSkipped()
+    pipeline.advance('suggest')
+    pipeline.advance('execute')
+
+    let session = beginPostCleanupRescanSession(createPostCleanupRescanSession(), {
+      cleanupOutcomeSummary: '清理完成',
+      pendingCleanupOutcome: {
+        sessionId: 's1',
+        succeededPaths: ['C:\\gone'],
+        executionFailed: [],
+        executionRejected: [],
+        prepareRejected: [],
+        result: {
+          planId: 'p1',
+          estimatedLogicalBytes: 1,
+          movedToTrashBytes: 1,
+          actuallyReclaimedBytes: 0,
+          reclaimState: 'pending',
+          recoveryMode: 'recycle-bin',
+          moved: 1,
+          skipped: 0,
+          failed: 0,
+          succeeded: ['C:\\gone'],
+          errors: [],
+          rejected: []
+        },
+        completedAt: Date.now()
+      },
+      drive: 'C:'
+    })
+
+    session = applyPostCleanupRescanFinish(session, { cancelled: true })
+    pipeline.markReviewStopped()
+
+    expect(session.state).toBe('rescan-cancelled')
+    expect(session.pendingCleanupOutcome).not.toBeNull()
+    expect(canRetryPostCleanupRescan(session)).toBe(true)
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: pipeline.getMilestone(),
+        analyzeSkipped: pipeline.isAnalyzeSkipped(),
+        reviewOutcome: pipeline.getReviewOutcome()
+      })
+    ).toBe('stopped')
+    expect(
+      resolvePipelineStepState('execute', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: pipeline.getMilestone(),
+        analyzeSkipped: pipeline.isAnalyzeSkipped(),
+        reviewOutcome: pipeline.getReviewOutcome()
+      })
+    ).toBe('done')
+  })
+
+  it('keeps review incomplete after auto review failure until retry succeeds', () => {
+    const pipeline = new TaskPipelineState()
+    pipeline.advance('scan')
+    pipeline.markAnalyzeSkipped()
+    pipeline.advance('suggest')
+    pipeline.advance('execute')
+
+    let session = beginPostCleanupRescanSession(createPostCleanupRescanSession(), {
+      cleanupOutcomeSummary: '清理完成',
+      pendingCleanupOutcome: {
+        sessionId: 's1',
+        succeededPaths: ['C:\\gone'],
+        executionFailed: [],
+        executionRejected: [],
+        prepareRejected: [],
+        result: {
+          planId: 'p1',
+          estimatedLogicalBytes: 1,
+          movedToTrashBytes: 1,
+          actuallyReclaimedBytes: 0,
+          reclaimState: 'pending',
+          recoveryMode: 'recycle-bin',
+          moved: 1,
+          skipped: 0,
+          failed: 0,
+          succeeded: ['C:\\gone'],
+          errors: [],
+          rejected: []
+        },
+        completedAt: Date.now()
+      },
+      drive: 'C:'
+    })
+
+    session = applyPostCleanupRescanFailure(session, 'disk busy')
+    pipeline.markReviewFailed()
+    expect(session.state).toBe('rescan-failed')
+    expect(canRetryPostCleanupRescan(session)).toBe(true)
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: pipeline.getMilestone(),
+        reviewOutcome: pipeline.getReviewOutcome()
+      })
+    ).toBe('failed')
+
+    pipeline.beginReview()
+    session = reducePostCleanupRescanSession(session, { type: 'retry-rescan' })
+    session = applyPostCleanupRescanFinish(session, { cancelled: false, comparisonDetail: '重扫对比：1 项已消失' })
+    pipeline.completeReview()
+    expect(session.state).toBe('rescan-completed')
+    expect(
+      resolvePipelineStepState('review', {
+        activeStep: null,
+        phase: 'completed',
+        milestone: pipeline.getMilestone(),
+        reviewOutcome: pipeline.getReviewOutcome()
+      })
+    ).toBe('done')
+    expect(canRetryPostCleanupRescan(session)).toBe(false)
   })
 })
