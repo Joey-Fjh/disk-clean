@@ -13,6 +13,7 @@ import {
 import { enrichItemsWithDetectionHeuristics } from '../rules/heuristic-enricher'
 import { enrichItemsWithUserExperiences } from '../experience/experience-enricher'
 import { getEnabledUserExperiences } from '../experience/user-experience-service'
+import { clearSessionMeasureCache } from './measure-size'
 import { getAllRulesWithMeta, getProtectedPaths } from '../rules'
 import { normalizeCandidate } from '../../shared/candidate-model'
 import { finalizeLocalScanItem } from '../../shared/candidate-judgment'
@@ -119,6 +120,7 @@ export async function runScan(
   onProgress?: ProgressCallback,
   onItems?: ItemsCallback
 ): Promise<ScanResult> {
+  clearSessionMeasureCache()
   beginScanSession()
   markAgentScanStarting()
   markRuleDraftScanStarting()

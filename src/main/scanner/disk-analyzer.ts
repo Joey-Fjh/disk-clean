@@ -47,7 +47,7 @@ async function analyzePath(
   if (info.isFile()) {
     size = info.size
   } else {
-    const measured = await measurePathDetailed(path, ANALYZER_MEASURE_MAX_DEPTH)
+    const measured = await measurePathDetailed(path, ANALYZER_MEASURE_MAX_DEPTH, undefined, true)
     size = measured.size
     sizePartial = measured.incomplete
   }

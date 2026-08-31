@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { readdir, stat, lstat } from 'fs/promises'
 import type { RuleConfig } from '../../shared/types'
+import { normalizeScanPath } from '../../shared/scan-path'
 import { isScanCancelled } from './scan-controller'
 
 const SIZE_TIMEOUT_MS = 6000
@@ -11,6 +12,32 @@ export const VALIDATION_MEASURE_TIMEOUT_MS = 6000
 export interface PathMeasureResult {
   size: number
   incomplete: boolean
+}
+
+const sessionMeasureCache = new Map<string, PathMeasureResult>()
+let sessionCacheHits = 0
+let sessionCacheMisses = 0
+
+function measureCacheKey(targetPath: string, maxDepth: number): string {
+  return `${normalizeScanPath(targetPath)}|${maxDepth}`
+}
+
+export function clearSessionMeasureCache(): void {
+  sessionMeasureCache.clear()
+  sessionCacheHits = 0
+  sessionCacheMisses = 0
+}
+
+export function getSessionMeasureCacheStats(): {
+  hits: number
+  misses: number
+  entries: number
+} {
+  return {
+    hits: sessionCacheHits,
+    misses: sessionCacheMisses,
+    entries: sessionMeasureCache.size
+  }
 }
 
 async function measurePathInternal(
@@ -81,8 +108,21 @@ export async function measurePathDetailedWithTimeout(
 export async function measurePathDetailed(
   targetPath: string,
   maxDepth = DEFAULT_MEASURE_MAX_DEPTH,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  useSessionCache = false
 ): Promise<PathMeasureResult> {
+  if (useSessionCache) {
+    const key = measureCacheKey(targetPath, maxDepth)
+    const cached = sessionMeasureCache.get(key)
+    if (cached) {
+      sessionCacheHits += 1
+      return cached
+    }
+    sessionCacheMisses += 1
+    const result = await measurePathInternal(targetPath, 0, maxDepth, signal)
+    sessionMeasureCache.set(key, result)
+    return result
+  }
   return measurePathInternal(targetPath, 0, maxDepth, signal)
 }
 
@@ -114,7 +154,7 @@ export async function measurePathSize(targetPath: string, rule: RuleConfig, sign
 
   try {
     if (isScanCancelled()) return 0
-    const result = await measurePathDetailed(targetPath, maxDepth, controller.signal)
+    const result = await measurePathDetailed(targetPath, maxDepth, controller.signal, true)
     return result.size
   } finally {
     clearTimeout(timeout)

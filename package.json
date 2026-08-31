@@ -11,7 +11,8 @@
     "build": "electron-vite build",
     "pack": "npm run build && electron-builder --win",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark": "npx tsx scripts/scan-benchmark.ts"
   },
   "build": {
     "appId": "com.diskclean.app",
