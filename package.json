@@ -12,7 +12,7 @@
     "pack": "npm run build && electron-builder --win",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "benchmark": "npx tsx scripts/scan-benchmark.ts"
+    "benchmark": "tsx scripts/scan-benchmark.ts"
   },
   "build": {
     "appId": "com.diskclean.app",
@@ -52,7 +52,8 @@
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
     "vitest": "^3.0.5",
-    "jsdom": "^26.0.0"
+    "jsdom": "^26.0.0",
+    "tsx": "^4.19.4"
   },
   "dependencies": {
     "fast-glob": "^3.3.2"

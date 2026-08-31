@@ -2,8 +2,16 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { ipcMain } from 'electron'
 import { agentIpcFail, agentIpcOk } from '../../shared/agent-ipc'
 import type { CreateUserExperienceInput, UpdateUserExperienceInput } from '../../shared/user-experience-types'
+import { USER_EXPERIENCE_LIMITS } from '../../shared/user-experience-limits'
 import { isTrustedMainWindowSender } from '../window-security'
 import type { AgentErrorCode } from '../../shared/agent-errors'
+import {
+  createUserExperience,
+  deleteUserExperience,
+  listUserExperiences,
+  updateUserExperience,
+  UserExperienceError
+} from './user-experience-service'
 
 function mapExperienceErrorCode(code: string): AgentErrorCode {
   switch (code) {
@@ -24,18 +32,19 @@ function mapExperienceErrorCode(code: string): AgentErrorCode {
       return 'INTERNAL_ERROR'
   }
 }
-import {
-  createUserExperience,
-  deleteUserExperience,
-  listUserExperiences,
-  updateUserExperience,
-  UserExperienceError
-} from './user-experience-service'
 
 function assertTrustedSender(event: IpcMainInvokeEvent): void {
   if (!isTrustedMainWindowSender(event.sender)) {
     throw new UserExperienceError('IPC_UNAUTHORIZED', '未授权的经验请求')
   }
+}
+
+function assertBoundedId(value: string, max: number, label: string): string {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > max) {
+    throw new UserExperienceError('INVALID_INPUT', `无效的${label}`)
+  }
+  return trimmed
 }
 
 function validateCreateInput(input: unknown): CreateUserExperienceInput {
@@ -54,8 +63,8 @@ function validateCreateInput(input: unknown): CreateUserExperienceInput {
     throw new UserExperienceError('CONFIRMATION_REQUIRED', '保存经验前需要用户确认')
   }
   return {
-    sessionId: payload.sessionId.trim(),
-    candidateId: payload.candidateId.trim(),
+    sessionId: assertBoundedId(payload.sessionId, USER_EXPERIENCE_LIMITS.MAX_SESSION_ID_LENGTH, '扫描会话'),
+    candidateId: assertBoundedId(payload.candidateId, USER_EXPERIENCE_LIMITS.MAX_CANDIDATE_ID_LENGTH, '候选项'),
     kind: payload.kind,
     confirmed: true,
     name: typeof payload.name === 'string' ? payload.name : undefined,
@@ -70,7 +79,7 @@ function validateUpdateInput(input: unknown): UpdateUserExperienceInput {
     throw new UserExperienceError('INVALID_INPUT', '无效的经验条目')
   }
   return {
-    id: payload.id.trim(),
+    id: assertBoundedId(payload.id, USER_EXPERIENCE_LIMITS.MAX_ID_LENGTH, '经验条目'),
     name: typeof payload.name === 'string' ? payload.name : undefined,
     reason: typeof payload.reason === 'string' ? payload.reason : undefined,
     enabled: typeof payload.enabled === 'boolean' ? payload.enabled : undefined
@@ -122,7 +131,9 @@ export function registerUserExperienceIpc(): void {
       if (typeof id !== 'string' || !id.trim()) {
         return agentIpcFail('INVALID_INPUT', '无效的经验条目')
       }
-      const deleted = deleteUserExperience(id.trim())
+      const deleted = deleteUserExperience(
+        assertBoundedId(id, USER_EXPERIENCE_LIMITS.MAX_ID_LENGTH, '经验条目')
+      )
       if (!deleted) return agentIpcFail('INVALID_INPUT', '经验条目不存在')
       return agentIpcOk(true)
     } catch (error) {

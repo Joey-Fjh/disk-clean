@@ -31,6 +31,7 @@ npm run pack
 - [x] Renderer 不提交 path 删除授权
 - [x] 清理仍经 Validator + confirmationId
 - [x] 用户经验不扩大删除权限
+- [x] RC 收口：经验库大小/损坏隔离、totalSize 扣除保留项、测量缓存完整性边界
 
 ## 签名
 

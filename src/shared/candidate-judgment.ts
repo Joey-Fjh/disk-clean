@@ -25,7 +25,8 @@ export const JUDGMENT_ORIGIN_LABELS: Record<JudgmentOrigin, string> = {
   'agent-advice-only': 'Agent 建议（未获清理授权）',
   'agent-session': 'Agent 会话授权',
   'space-evidence-only': '仅空间发现',
-  'protected-policy': '安全策略保护'
+  'protected-policy': '安全策略保护',
+  'user-experience': '用户经验'
 }
 
 export function isRuleBackedCandidate(item: ScanItem): boolean {

@@ -6,6 +6,7 @@ import type {
   CreateUserExperienceInput,
   UpdateUserExperienceInput,
   UserExperienceEntry,
+  UserExperienceKind,
   UserExperienceMatcher
 } from '../../shared/user-experience-types'
 import { getScanSession } from '../scan/scan-session-store'
@@ -42,6 +43,16 @@ function buildMatcher(candidate: ScanCandidate, drive: string): UserExperienceMa
   return matcher
 }
 
+function matcherSignature(kind: UserExperienceKind, matcher: UserExperienceMatcher): string {
+  return JSON.stringify({
+    kind,
+    ruleId: matcher.ruleId ?? '',
+    contentType: matcher.contentType ?? '',
+    relativePathSuffix: matcher.relativePathSuffix ?? '',
+    softwareName: matcher.softwareName ?? ''
+  })
+}
+
 function resolveCandidate(sessionId: string, candidateId: string): { candidate: ScanCandidate; drive: string } {
   const session = getScanSession(sessionId)
   if (!session) throw new UserExperienceError('SESSION_NOT_FOUND', '扫描会话已过期，请重新扫描')
@@ -60,9 +71,11 @@ export function createUserExperience(input: CreateUserExperienceInput): UserExpe
   }
   const { candidate, drive } = resolveCandidate(input.sessionId, input.candidateId)
   const store = loadUserExperienceStore()
-  if (store.entries.length >= USER_EXPERIENCE_LIMITS.MAX_ENTRIES) {
-    throw new UserExperienceError('LIMIT_REACHED', '经验条目已达上限')
-  }
+  const matcher = buildMatcher(candidate, drive)
+  const signature = matcherSignature(input.kind, matcher)
+  const duplicateIndex = store.entries.findIndex(
+    (entry) => entry.enabled && matcherSignature(entry.kind, entry.matcher) === signature
+  )
   const now = Date.now()
   const name =
     input.name?.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_NAME_LENGTH) ||
@@ -72,12 +85,31 @@ export function createUserExperience(input: CreateUserExperienceInput): UserExpe
   const reason =
     input.reason?.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_REASON_LENGTH) ||
     `用户确认保留：${candidate.ruleName || candidate.contentType}`
+
+  if (duplicateIndex >= 0) {
+    const existing = store.entries[duplicateIndex]
+    const updated: UserExperienceEntry = {
+      ...existing,
+      name,
+      reason,
+      enabled: true,
+      updatedAt: now
+    }
+    store.entries[duplicateIndex] = updated
+    saveUserExperienceStore(store)
+    return updated
+  }
+
+  if (store.entries.length >= USER_EXPERIENCE_LIMITS.MAX_ENTRIES) {
+    throw new UserExperienceError('LIMIT_REACHED', '经验条目已达上限')
+  }
+
   const entry: UserExperienceEntry = {
     id: randomUUID(),
     kind: input.kind,
     name,
     enabled: true,
-    matcher: buildMatcher(candidate, drive),
+    matcher,
     reason,
     source: 'user-confirmed',
     createdAt: now,
@@ -93,10 +125,22 @@ export function updateUserExperience(input: UpdateUserExperienceInput): UserExpe
   const index = store.entries.findIndex((entry) => entry.id === input.id)
   if (index < 0) return null
   const current = store.entries[index]
+  let name = current.name
+  let reason = current.reason
+  if (input.name !== undefined) {
+    const trimmed = input.name.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_NAME_LENGTH)
+    if (!trimmed) throw new UserExperienceError('INVALID_INPUT', '名称不能为空')
+    name = trimmed
+  }
+  if (input.reason !== undefined) {
+    const trimmed = input.reason.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_REASON_LENGTH)
+    if (!trimmed) throw new UserExperienceError('INVALID_INPUT', '原因不能为空')
+    reason = trimmed
+  }
   const next: UserExperienceEntry = {
     ...current,
-    name: input.name?.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_NAME_LENGTH) ?? current.name,
-    reason: input.reason?.trim().slice(0, USER_EXPERIENCE_LIMITS.MAX_REASON_LENGTH) ?? current.reason,
+    name,
+    reason,
     enabled: input.enabled ?? current.enabled,
     updatedAt: Date.now()
   }

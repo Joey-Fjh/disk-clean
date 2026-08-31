@@ -120,7 +120,11 @@ export async function measurePathDetailed(
     }
     sessionCacheMisses += 1
     const result = await measurePathInternal(targetPath, 0, maxDepth, signal)
-    sessionMeasureCache.set(key, result)
+    const cacheable =
+      !result.incomplete && !signal?.aborted && !isScanCancelled()
+    if (cacheable) {
+      sessionMeasureCache.set(key, result)
+    }
     return result
   }
   return measurePathInternal(targetPath, 0, maxDepth, signal)

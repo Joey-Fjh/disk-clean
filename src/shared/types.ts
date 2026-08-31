@@ -113,6 +113,7 @@ export type JudgmentOrigin =
   | 'agent-session'
   | 'space-evidence-only'
   | 'protected-policy'
+  | 'user-experience'
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown'
 

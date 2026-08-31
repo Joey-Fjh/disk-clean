@@ -4,14 +4,22 @@ import { normalizePath } from '../../shared/path-utils'
 import type { UserExperienceEntry } from '../../shared/user-experience-types'
 
 function normalizeToken(input: string): string {
-  return input.replace(/\//g, '\\').toLowerCase()
+  return input.replace(/\//g, '\\').toLowerCase().replace(/^\\+|\\+$/g, '')
 }
 
-function pathMatchesSuffix(path: string, suffix: string): boolean {
-  const normalized = normalizePath(path)
-  const token = normalizeToken(suffix)
-  if (!token) return false
-  return normalized.includes(token)
+/** 路径段边界匹配：suffix 必须是 path 中连续的路径段，禁止 Cache 误命中 CacheBackup。 */
+export function pathMatchesSuffix(path: string, suffix: string): boolean {
+  const pathSegs = normalizePath(path).toLowerCase().split('\\').filter(Boolean)
+  const suffixSegs = normalizeToken(suffix).split('\\').filter(Boolean)
+  if (suffixSegs.length === 0 || pathSegs.length < suffixSegs.length) return false
+
+  outer: for (let start = 0; start <= pathSegs.length - suffixSegs.length; start += 1) {
+    for (let index = 0; index < suffixSegs.length; index += 1) {
+      if (pathSegs[start + index] !== suffixSegs[index]) continue outer
+    }
+    return true
+  }
+  return false
 }
 
 export function matchesUserExperience(item: ScanItem, entry: UserExperienceEntry): boolean {
@@ -70,8 +78,8 @@ export function enrichItemsWithUserExperiences(
         ...next,
         judgment: {
           status: 'keep',
-          judgmentOrigin: 'local-rule',
-          source: 'legacy-rule',
+          judgmentOrigin: 'user-experience',
+          source: 'none',
           confidence: 'high',
           basis: [reason]
         },

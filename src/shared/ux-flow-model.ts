@@ -34,11 +34,13 @@ export type UserFacingJudgmentSource =
   | '本地规则 + Agent'
   | '安全策略'
   | '空间发现'
+  | '用户经验'
 
 export type ProgressBarMode = 'hidden' | 'determinate' | 'indeterminate'
 
 export function resolveUserFacingJudgmentSource(item: ScanItem): UserFacingJudgmentSource {
   const origin: JudgmentOrigin | undefined = item.judgment?.judgmentOrigin
+  if (origin === 'user-experience') return '用户经验'
   if (origin === 'protected-policy') return '安全策略'
   if (origin === 'local-rule-agent-reviewed') return '本地规则 + Agent'
   if (origin === 'local-rule') return '本地规则'

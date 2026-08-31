@@ -10,6 +10,19 @@ import {
 
 const ALLOWED_KINDS = new Set<UserExperienceKind>(['keep-exclusion', 'recognition-hint'])
 const ALLOWED_SOURCES = new Set<UserExperienceSource>(['user-confirmed', 'imported-draft'])
+const ENTRY_FIELDS = new Set([
+  'id',
+  'kind',
+  'name',
+  'enabled',
+  'matcher',
+  'reason',
+  'source',
+  'createdAt',
+  'updatedAt'
+])
+const MATCHER_FIELDS = new Set(['ruleId', 'contentType', 'relativePathSuffix', 'softwareName'])
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,80}$/
 
 function clip(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -18,9 +31,18 @@ function clip(value: unknown, max: number): string | undefined {
   return trimmed.slice(0, max)
 }
 
-function sanitizeMatcher(raw: unknown): UserExperienceMatcher | null {
-  if (!raw || typeof raw !== 'object') return null
+function isFiniteNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function hasOnlyKeys(input: Record<string, unknown>, allowed: Set<string>): boolean {
+  return Object.keys(input).every((key) => allowed.has(key))
+}
+
+function sanitizeMatcher(raw: unknown): { matcher: UserExperienceMatcher | null; changed: boolean } {
+  if (!raw || typeof raw !== 'object') return { matcher: null, changed: false }
   const input = raw as Record<string, unknown>
+  const changed = !hasOnlyKeys(input, MATCHER_FIELDS)
   const matcher: UserExperienceMatcher = {}
   const ruleId = clip(input.ruleId, 80)
   const contentType = clip(input.contentType, 80)
@@ -30,33 +52,45 @@ function sanitizeMatcher(raw: unknown): UserExperienceMatcher | null {
   if (contentType) matcher.contentType = contentType
   if (relativePathSuffix) matcher.relativePathSuffix = relativePathSuffix
   if (softwareName) matcher.softwareName = softwareName
-  return Object.keys(matcher).length > 0 ? matcher : null
+  return {
+    matcher: Object.keys(matcher).length > 0 ? matcher : null,
+    changed
+  }
 }
 
-function sanitizeEntry(raw: unknown): UserExperienceEntry | null {
-  if (!raw || typeof raw !== 'object') return null
+function sanitizeEntry(raw: unknown): { entry: UserExperienceEntry | null; changed: boolean } {
+  if (!raw || typeof raw !== 'object') return { entry: null, changed: false }
   const input = raw as Record<string, unknown>
-  const id = clip(input.id, 80)
+  let changed = !hasOnlyKeys(input, ENTRY_FIELDS)
+  const id = clip(input.id, USER_EXPERIENCE_LIMITS.MAX_ID_LENGTH)
   const kind = input.kind
   const name = clip(input.name, USER_EXPERIENCE_LIMITS.MAX_NAME_LENGTH)
   const reason = clip(input.reason, USER_EXPERIENCE_LIMITS.MAX_REASON_LENGTH)
   const source = input.source
-  const matcher = sanitizeMatcher(input.matcher)
-  if (!id || !name || !reason || !matcher) return null
-  if (!ALLOWED_KINDS.has(kind as UserExperienceKind)) return null
-  if (!ALLOWED_SOURCES.has(source as UserExperienceSource)) return null
-  const createdAt = typeof input.createdAt === 'number' ? input.createdAt : Date.now()
-  const updatedAt = typeof input.updatedAt === 'number' ? input.updatedAt : createdAt
+  const { matcher, changed: matcherChanged } = sanitizeMatcher(input.matcher)
+  changed = changed || matcherChanged
+  if (!id || !ID_PATTERN.test(id)) return { entry: null, changed }
+  if (!name || !reason || !matcher) return { entry: null, changed }
+  if (!ALLOWED_KINDS.has(kind as UserExperienceKind)) return { entry: null, changed }
+  if (!ALLOWED_SOURCES.has(source as UserExperienceSource)) return { entry: null, changed }
+  if (!isFiniteNonNegativeNumber(input.createdAt) || !isFiniteNonNegativeNumber(input.updatedAt)) {
+    return { entry: null, changed: false }
+  }
+  const createdAt = input.createdAt
+  const updatedAt = input.updatedAt
   return {
-    id,
-    kind: kind as UserExperienceKind,
-    name,
-    enabled: input.enabled !== false,
-    matcher,
-    reason,
-    source: source as UserExperienceSource,
-    createdAt,
-    updatedAt
+    entry: {
+      id,
+      kind: kind as UserExperienceKind,
+      name,
+      enabled: input.enabled !== false,
+      matcher,
+      reason,
+      source: source as UserExperienceSource,
+      createdAt,
+      updatedAt
+    },
+    changed
   }
 }
 
@@ -80,15 +114,31 @@ export function sanitizeUserExperienceStore(raw: unknown): {
     }
   }
   const input = raw as Record<string, unknown>
+  let changed = Object.keys(input).some((key) => key !== 'schemaVersion' && key !== 'entries')
+  if (input.schemaVersion !== USER_EXPERIENCE_SCHEMA_VERSION) {
+    changed = true
+  }
   const entriesRaw = Array.isArray(input.entries) ? input.entries : []
+  if (!Array.isArray(input.entries)) changed = true
   const entries: UserExperienceEntry[] = []
+  const seenIds = new Set<string>()
   for (const entry of entriesRaw) {
-    const sanitized = sanitizeEntry(entry)
-    if (sanitized) entries.push(sanitized)
-    else isolated.push(entry)
+    const { entry: sanitized, changed: entryChanged } = sanitizeEntry(entry)
+    changed = changed || entryChanged
+    if (!sanitized) {
+      isolated.push(entry)
+      continue
+    }
+    if (seenIds.has(sanitized.id)) {
+      isolated.push(entry)
+      changed = true
+      continue
+    }
+    seenIds.add(sanitized.id)
+    entries.push(sanitized)
   }
   const limited = entries.slice(0, USER_EXPERIENCE_LIMITS.MAX_ENTRIES)
-  const changed = isolated.length > 0 || limited.length !== entriesRaw.length
+  if (limited.length !== entries.length) changed = true
   return {
     state: {
       schemaVersion: USER_EXPERIENCE_SCHEMA_VERSION,

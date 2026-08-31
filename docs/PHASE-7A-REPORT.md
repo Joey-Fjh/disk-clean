@@ -1,6 +1,6 @@
 # 阶段 7A 交付报告：UI 与主流程集中调整
 
-> **状态**：实现完成，待用户集中试用
+> **状态**：实现完成；RC 收口已加固经验库与 totalSize 语义
 >
 > **基线 checkpoint**：`7ce2ac0` — `feat: checkpoint phase 7A cleanup UX`
 > **未 push · 已进入 7B/7C/7D 连续实现**

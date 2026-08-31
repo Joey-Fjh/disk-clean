@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { enrichItemsWithUserExperiences, matchesUserExperience } from '../src/main/experience/experience-enricher'
+import { enrichItemsWithUserExperiences, matchesUserExperience, pathMatchesSuffix } from '../src/main/experience/experience-enricher'
+import { computeDeletableTotalSize } from '../src/shared/scan-stats'
+import { resolveUserFacingJudgmentSource } from '../src/shared/ux-flow-model'
 import type { ScanItem } from '../src/shared/types'
 import type { UserExperienceEntry } from '../src/shared/user-experience-types'
 
@@ -15,17 +17,17 @@ function item(partial: Partial<ScanItem> & Pick<ScanItem, 'id' | 'path'>): ScanI
     contentType: partial.contentType ?? 'app-cache',
     reason: partial.reason ?? 'cache',
     impact: partial.impact ?? 'low',
-    source: partial.rule,
+    source: partial.source ?? 'rule',
     discoverySources: partial.discoverySources ?? ['rule'],
     deletable: partial.deletable ?? true,
     defaultChecked: partial.defaultChecked ?? true,
     judgment: partial.judgment ?? {
       status: 'suggested',
-      source: 'rule',
+      source: 'legacy-rule',
       confidence: 'high',
       basis: []
     },
-    selection: partial.selection ?? { selectable: true, autoSelect: true },
+    selection: partial.selection ?? { selectable: true },
     requiresAppClosed: partial.requiresAppClosed ?? false,
     snapshotComplete: partial.snapshotComplete ?? true,
     entryKind: partial.entryKind ?? 'directory',
@@ -58,19 +60,40 @@ describe('experience enricher', () => {
     expect(matchesUserExperience(scanItem, keepEntry)).toBe(true)
   })
 
+  it('does not match suffix across path segment boundaries', () => {
+    expect(pathMatchesSuffix('C:\\App\\CacheBackup\\file', 'Cache')).toBe(false)
+    expect(pathMatchesSuffix('C:\\App\\Cache\\file', 'Cache')).toBe(true)
+  })
+
   it('downgrades keep experience to non-selectable keep judgment', () => {
     const [result] = enrichItemsWithUserExperiences(
       [
         item({
           id: '1',
-          path: 'C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\User Data\\Cache\\abc'
+          path: 'C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\User Data\\Cache\\abc',
+          size: 500
         })
       ],
       [keepEntry]
     )
     expect(result.judgment?.status).toBe('keep')
+    expect(result.judgment?.judgmentOrigin).toBe('user-experience')
     expect(result.selection.selectable).toBe(false)
     expect(result.deletable).toBe(false)
+    expect(resolveUserFacingJudgmentSource(result)).toBe('用户经验')
+  })
+
+  it('excludes keep-exclusion items from deletable total size', () => {
+    const original = item({
+      id: '1',
+      path: 'C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\User Data\\Cache\\abc',
+      size: 500
+    })
+    expect(computeDeletableTotalSize([original])).toBe(500)
+    const [enriched] = enrichItemsWithUserExperiences([original], [keepEntry])
+    expect(computeDeletableTotalSize([enriched])).toBe(0)
+    expect(enriched.selection.selectable).toBe(false)
+    expect(enriched.deletable).toBe(false)
   })
 
   it('adds recognition hints without granting deletable', () => {

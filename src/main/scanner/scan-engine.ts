@@ -151,7 +151,7 @@ export async function runScan(
       items: enrichedItems,
       errors: result.errors,
       cancelled: result.cancelled,
-      totalSize: computeDeletableTotalSize(result.items),
+      totalSize: computeDeletableTotalSize(enrichedItems),
       scannedAt: new Date().toISOString()
     }
   } finally {
